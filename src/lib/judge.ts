@@ -106,6 +106,20 @@ Read them as primary evidence. Two things follow:
 
 Where a section is thin or empty, say what you would need and score conservatively. Do not invent detail about a product you have not been told about.
 
+## Images, when provided
+
+Screenshots of the search results page and the listing images may be attached. **When they are, judge the visual criteria from what you can actually see, not from the seller's description of it.** Say what is in the images.
+
+What to look at:
+
+- **The three-second test.** Looking at the thumbnail as it appears in search, is it obvious what the product is and what it does? Would it stop a thumb scrolling?
+- **Photography quality.** Lighting, background, composition, resolution. Does it look like a professional shot or a phone photo on a kitchen worktop?
+- **What is missing.** No lifestyle or in-use shot, no scale reference, no shot of the detail people complain about in reviews. Absences are usually the cheapest gap to exploit.
+- **Does it look cheap?** Buyers infer product quality from photo quality. A good product photographed badly reads as a bad product.
+- **On a search results screenshot**, compare the candidate against the listings around it. Standing out in that grid is the entire job.
+
+If no images are attached, say so in the *visual* reasoning and score conservatively, because you are then working from a description rather than the thing itself.
+
 ## How to score
 
 Score each criterion 1 to 5, where 1 is "no opportunity here" and 5 is "obvious, exploitable gap". Justify every score with something concrete from the input.
@@ -292,6 +306,50 @@ export function judgementToMarkdown(
   );
 
   return lines.join("\n");
+}
+
+export type IncomingImage = { data: string; mediaType: string };
+
+/**
+ * Images arrive as base64 from the browser. Validate shape and size before
+ * forwarding: an oversized or non-image payload should fail here, cheaply,
+ * rather than after a paid API call.
+ */
+export function parseImages(
+  raw: unknown,
+): { ok: true; value: IncomingImage[] } | { ok: false; errors: string[] } {
+  if (raw === undefined || raw === null) return { ok: true, value: [] };
+  if (!Array.isArray(raw)) return { ok: false, errors: ["images must be an array"] };
+  if (raw.length > 4) return { ok: false, errors: ["No more than 4 images"] };
+
+  const errors: string[] = [];
+  const value: IncomingImage[] = [];
+
+  for (const [i, item] of raw.entries()) {
+    const img = item as Record<string, unknown>;
+    const data = img?.data;
+    const mediaType = img?.mediaType;
+
+    if (typeof data !== "string" || data.length === 0) {
+      errors.push(`Image ${i + 1} has no data`);
+      continue;
+    }
+    // base64 is roughly 4/3 of the byte size; 7MB of base64 is about 5MB.
+    if (data.length > 7_000_000) {
+      errors.push(`Image ${i + 1} is too large`);
+      continue;
+    }
+    if (
+      typeof mediaType !== "string" ||
+      !["image/jpeg", "image/png", "image/webp", "image/gif"].includes(mediaType)
+    ) {
+      errors.push(`Image ${i + 1} is not a supported image type`);
+      continue;
+    }
+    value.push({ data, mediaType });
+  }
+
+  return errors.length > 0 ? { ok: false, errors } : { ok: true, value };
 }
 
 /** Never trust what arrives over HTTP. */

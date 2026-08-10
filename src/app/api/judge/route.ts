@@ -3,6 +3,7 @@ import {
   JUDGE_SYSTEM_PROMPT,
   JudgementSchema,
   buildJudgePrompt,
+  parseImages,
   parseProductInput,
 } from "@/lib/judge";
 import {
@@ -40,6 +41,15 @@ export async function POST(request: Request) {
     return Response.json({ error: "Body must be valid JSON" }, { status: 400 });
   }
 
+  const raw = body as Record<string, unknown>;
+  const images = parseImages(raw?.images);
+  if (!images.ok) {
+    return Response.json(
+      { error: "Invalid images", details: images.errors },
+      { status: 400 },
+    );
+  }
+
   const parsed = parseProductInput(body);
   if (!parsed.ok) {
     return Response.json(
@@ -68,7 +78,24 @@ export async function POST(request: Request) {
           effort: "high",
           format: zodOutputFormat(JudgementSchema),
         },
-        messages: [{ role: "user", content: buildJudgePrompt(product) }],
+        messages: [
+          {
+            role: "user",
+            content: [
+              // Images first: Claude attends to them better when they precede
+              // the question rather than trailing it.
+              ...images.value.map((image) => ({
+                type: "image" as const,
+                source: {
+                  type: "base64" as const,
+                  media_type: image.mediaType as "image/jpeg",
+                  data: image.data,
+                },
+              })),
+              { type: "text" as const, text: buildJudgePrompt(product) },
+            ],
+          },
+        ],
       }),
     );
 

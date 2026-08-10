@@ -1,7 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import {
+  MAX_IMAGES,
+  imagesFromPaste,
+  prepareImage,
+  type JudgeImage,
+} from "@/lib/images";
 import {
   DEFAULT_PRODUCT,
   WEIGHT_LIMIT_GRAMS,
@@ -83,6 +89,35 @@ export default function JudgePage() {
   const [pending, setPending] = useState<"judge" | "premortem" | null>(null);
   const [thinking, setThinking] = useState("");
   const [copied, setCopied] = useState(false);
+  const [images, setImages] = useState<JudgeImage[]>([]);
+
+  async function addImageFiles(files: File[]) {
+    const room = MAX_IMAGES - images.length;
+    if (room <= 0) {
+      setErrors([`Maximum ${MAX_IMAGES} images. Remove one first.`]);
+      return;
+    }
+    try {
+      const prepared = await Promise.all(files.slice(0, room).map(prepareImage));
+      setImages((current) => [...current, ...prepared]);
+    } catch {
+      setErrors(["Could not read one of those images"]);
+    }
+  }
+
+  // Cmd+V anywhere on the page adds a screenshot, which is how you will
+  // actually be working: screenshot Amazon, switch tab, paste.
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      const files = imagesFromPaste(event);
+      if (files.length > 0) {
+        event.preventDefault();
+        void addImageFiles(files);
+      }
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  });
 
   const set = <K extends keyof ProductInput>(key: K, value: ProductInput[K]) =>
     setProduct((prev) => ({ ...prev, [key]: value }));
@@ -153,8 +188,11 @@ export default function JudgePage() {
     event.preventDefault();
     setJudgement(null);
     setPremortem(null);
-    await streamPost("/api/judge", product, "judge", (e) =>
-      setJudgement(e.judgement as Judgement),
+    await streamPost(
+      "/api/judge",
+      { ...product, images: images.map(({ data, mediaType }) => ({ data, mediaType })) },
+      "judge",
+      (e) => setJudgement(e.judgement as Judgement),
     );
   }
 
@@ -187,6 +225,7 @@ export default function JudgePage() {
   /** Clears everything except the running cost, ready for the next product. */
   function nextProduct() {
     setProduct(DEFAULT_PRODUCT);
+    setImages([]);
     setJudgement(null);
     setPremortem(null);
     setThinking("");
@@ -283,6 +322,57 @@ export default function JudgePage() {
                 />
               </label>
             ))}
+
+            <fieldset className="text-sm">
+              <legend className="text-zinc-700 dark:text-zinc-300">
+                Screenshots ({images.length}/{MAX_IMAGES})
+              </legend>
+              <span className="mt-0.5 block text-xs leading-4 text-zinc-500">
+                Press Cmd+V anywhere on this page to paste a screenshot. The
+                search results grid is the most useful one, because standing out
+                in that grid is the whole job. Without images the visual scores
+                are guesswork.
+              </span>
+
+              {images.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {images.map((image, index) => (
+                    <div key={image.preview.slice(-32)} className="group relative">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={image.preview}
+                        alt={image.label}
+                        className="h-20 w-20 rounded border border-zinc-300 object-cover dark:border-zinc-700"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setImages((c) => c.filter((_, i) => i !== index))
+                        }
+                        aria-label={`Remove ${image.label}`}
+                        className="absolute -right-1.5 -top-1.5 h-5 w-5 rounded-full border border-zinc-300 bg-white text-xs leading-none text-zinc-700 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <label className="mt-2 inline-block cursor-pointer rounded border border-zinc-300 px-3 py-1 text-xs text-zinc-700 dark:border-zinc-700 dark:text-zinc-300">
+                Choose files
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    void addImageFiles(Array.from(e.target.files ?? []));
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            </fieldset>
 
             <fieldset className="text-sm">
               <legend className="text-zinc-700 dark:text-zinc-300">US signal</legend>
