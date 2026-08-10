@@ -95,9 +95,20 @@ The seller is NOT looking for undiscovered niches. He is looking for a product w
 
 A product only needs ONE of these to be worth pursuing.
 
+## What you are being given
+
+The listing and review sections contain **raw pasted material** — actual listing titles and bullets, actual customer reviews, copied straight from Amazon. They are not a summary and they have not been filtered for you.
+
+Read them as primary evidence. Two things follow:
+
+- **Quote specifics.** Use the actual words from the reviews in your reasoning. "Reviewers repeatedly say it 'goes tacky after a few washes'" is worth ten times "there are quality complaints".
+- **Look for what the seller missed.** He pasted these without necessarily spotting the pattern. Count how often each complaint recurs, and say which is genuinely the most common — it is frequently not the one he would have picked out. If the reviews contradict his read of the opportunity, say so plainly.
+
+Where a section is thin or empty, say what you would need and score conservatively. Do not invent detail about a product you have not been told about.
+
 ## How to score
 
-Score each criterion 1 to 5, where 1 is "no opportunity here" and 5 is "obvious, exploitable gap". Justify every score with something concrete from the input. If the input doesn't tell you enough to score honestly, say so in the reasoning and score conservatively — do not invent detail about a product you have not been told about.
+Score each criterion 1 to 5, where 1 is "no opportunity here" and 5 is "obvious, exploitable gap". Justify every score with something concrete from the input.
 
 **Improvability is the primary thing.** Weight your verdict accordingly.
 
@@ -148,13 +159,13 @@ export function buildJudgePrompt(p: ProductInput): string {
 **Target sell price:** £${p.sellPrice.toFixed(2)}
 **Weight:** ${p.weightGrams}g
 
-**What the current listings look like:**
+**The listings (raw paste — titles, bullets, notes on the photography):**
 ${p.listingNotes || "(not provided)"}
 
-**What reviews complain about:**
+**Reviews (raw paste, unedited):**
 ${p.reviewComplaints || "(not provided)"}
 
-**Competition:**
+**Competition (raw paste — brand names, seller counts, review counts):**
 ${p.competitorNotes || "(not provided)"}
 
 **US signal:** ${usSignalText}${weightNote}`;
@@ -222,9 +233,12 @@ export function parseProductInput(
     category: str("category", true, 100),
     sellPrice: num("sellPrice"),
     weightGrams: num("weightGrams"),
-    listingNotes: str("listingNotes"),
-    reviewComplaints: str("reviewComplaints"),
-    competitorNotes: str("competitorNotes"),
+    // Generous caps: these hold raw pasted listings and reviews, not
+    // summaries. Input tokens are the cheap half of a call, so the limit is
+    // there to stop accidents, not to ration.
+    listingNotes: str("listingNotes", false, 20000),
+    reviewComplaints: str("reviewComplaints", false, 40000),
+    competitorNotes: str("competitorNotes", false, 20000),
     usSignal: signal as ProductInput["usSignal"],
   };
 

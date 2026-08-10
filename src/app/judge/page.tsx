@@ -27,21 +27,21 @@ const TEXT_FIELDS: {
 }[] = [
   {
     key: "listingNotes",
-    label: "What the current listings look like",
-    hint: "Photos, titles, A+ content, video. This is where marketing gaps show up, and it costs you nothing but a look.",
-    rows: 3,
+    label: "Paste the listings",
+    hint: "Copy the actual titles and bullets from the top few sellers. Add a line on the photography: lifestyle shots or plain white, any video, any A+ content. Do not tidy it up.",
+    rows: 6,
   },
   {
     key: "reviewComplaints",
-    label: "What reviews complain about",
-    hint: "Read the 3-star reviews of the top sellers, not the 1-star ones. Three stars is where people say what is actually wrong. This is the richest source of a real product gap.",
-    rows: 4,
+    label: "Paste the reviews",
+    hint: "Ten or so 3-star reviews from the market leaders, raw and unedited. Three stars is where people say what is actually wrong. Do not summarise them — pasting is less work for you, and summarising is where the signal gets lost.",
+    rows: 10,
   },
   {
     key: "competitorNotes",
-    label: "Competition",
-    hint: "Who is selling it, how many, are they branded or generic, roughly how many reviews do the leaders have.",
-    rows: 3,
+    label: "Paste the competition",
+    hint: "Brand names as they appear, how many sellers, roughly how many reviews the leaders have. Generic names like KJHFG or Woohoo are themselves a signal.",
+    rows: 5,
   },
 ];
 
@@ -322,7 +322,7 @@ export default function JudgePage() {
               <p className="rounded border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700">
                 {pending === "judge"
                   ? "Starting…"
-                  : "Fill in what you can and press Judge. The more you put in the review and listing boxes, the less it has to guess."}
+                  : "Paste in what you find and press Judge. Raw reviews beat a summary every time: it reads them as evidence and counts which complaint actually recurs, which is often not the one you would have picked."}
               </p>
             ) : !judgement ? null : (
               <div className="space-y-8">
