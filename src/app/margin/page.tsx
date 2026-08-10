@@ -180,7 +180,7 @@ const VERDICT_STYLE: Record<MarginResult["verdict"], string> = {
 
 const VERDICT_BLURB: Record<MarginResult["verdict"], string> = {
   TEST: "Every threshold cleared. Order samples, not stock.",
-  PARK: "The hard gates pass but something about cash or pace is off. Revisit with a better angle.",
+  PARK: "No hard threshold failed, but something below needs a decision before you commit money.",
   KILL: "At least one hard threshold failed. Log the reason so you stop re-finding this product.",
 };
 
@@ -428,6 +428,11 @@ export default function MarginPage() {
                           </td>
                           <td className="py-2 pr-4 text-zinc-700 dark:text-zinc-300">
                             {check.label}
+                            {!check.pass && check.note && (
+                              <span className="mt-0.5 block text-xs leading-4 text-zinc-500">
+                                {check.note}
+                              </span>
+                            )}
                           </td>
                           <td className="py-2 pr-4 text-right tabular-nums text-zinc-900 dark:text-zinc-100">
                             {check.actual}

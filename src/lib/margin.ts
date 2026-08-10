@@ -36,6 +36,7 @@ export type Check = {
   pass: boolean;
   /** A failed hard check kills the product outright. */
   hard: boolean;
+  note?: string;
 };
 
 export type MarginResult = {
@@ -198,7 +199,8 @@ export function calculateMargin(input: MarginInput): MarginResult {
       actual: pct(netMarginVatRegisteredPct),
       threshold: "≥ 15%",
       pass: netMarginVatRegisteredPct >= 15,
-      hard: true,
+      hard: false,
+      note: "A warning, not a kill. The figure ignores input VAT recovery so the truth is better than shown, but a product that only works below £90k still needs a repricing plan before you get there.",
     },
     {
       label: "Days to pay back the first order",
@@ -213,6 +215,7 @@ export function calculateMargin(input: MarginInput): MarginResult {
       threshold: "≤ 25%",
       pass: orderPctOfCapital <= 25,
       hard: false,
+      note: "Measured on landed cost rather than supplier cost, which is the conservative reading. Cut the order quantity rather than the cap.",
     },
   ];
 
