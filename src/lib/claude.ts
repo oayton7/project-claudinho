@@ -50,6 +50,21 @@ export type Usage = {
   costPence: number;
 };
 
+/**
+ * Anthropic's own error text, safe to show. It names the actual problem —
+ * invalid key, credit exhausted, rate limited — instead of the useless
+ * "something went wrong" that had us guessing at timeouts for an hour.
+ * The key itself never appears in these messages.
+ */
+export function describeError(error: unknown): string {
+  if (error instanceof Anthropic.APIError) {
+    const status = error.status ? `${error.status}: ` : "";
+    return `Anthropic API said — ${status}${error.message}`;
+  }
+  if (error instanceof Error) return error.message;
+  return "Unknown error";
+}
+
 export function priceIt(usage: {
   input_tokens: number;
   output_tokens: number;

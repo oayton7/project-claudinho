@@ -5,7 +5,14 @@ import {
   buildJudgePrompt,
   parseProductInput,
 } from "@/lib/judge";
-import { MODEL, MissingApiKey, RateLimited, guarded, priceIt } from "@/lib/claude";
+import {
+  MODEL,
+  MissingApiKey,
+  RateLimited,
+  describeError,
+  guarded,
+  priceIt,
+} from "@/lib/claude";
 
 /**
  * Serverless functions are killed after a fixed time. A judgement takes over a
@@ -107,10 +114,7 @@ export async function POST(request: Request) {
           send(controller, { type: "done", judgement: judgement.data, usage });
         } catch (error) {
           console.error("[judge] stream failed", error);
-          send(controller, {
-            type: "error",
-            error: "Lost the connection to Claude part-way through.",
-          });
+          send(controller, { type: "error", error: describeError(error) });
         } finally {
           controller.close();
         }
@@ -131,9 +135,6 @@ export async function POST(request: Request) {
       return Response.json({ error: error.message }, { status: 429 });
     }
     console.error("[judge] failed", error);
-    return Response.json(
-      { error: "Could not reach Claude. Check the server logs." },
-      { status: 502 },
-    );
+    return Response.json({ error: describeError(error) }, { status: 502 });
   }
 }
