@@ -17,6 +17,7 @@ const US_SIGNALS: { value: ProductInput["usSignal"]; label: string }[] = [
   { value: "falling", label: "Falling in the US" },
   { value: "flat", label: "Flat in the US" },
   { value: "no-analogue", label: "No US equivalent" },
+  { value: "unchecked", label: "Haven't checked" },
 ];
 
 const TEXT_FIELDS: {
@@ -260,8 +261,11 @@ export default function JudgePage() {
             <fieldset className="text-sm">
               <legend className="text-zinc-700 dark:text-zinc-300">US signal</legend>
               <span className="mt-0.5 block text-xs leading-4 text-zinc-500">
-                US trends run roughly a year ahead of the UK. No US equivalent is
-                neutral, not a mark against.
+                US trends run roughly a year ahead of the UK. Check it on Google
+                Trends: search the term, add the same term for the United States,
+                set 5 years. &ldquo;No US equivalent&rdquo; is neutral, not a mark
+                against. &ldquo;Haven&rsquo;t checked&rdquo; is honest and the
+                Judge will say if it needs the answer.
               </span>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {US_SIGNALS.map((s) => (

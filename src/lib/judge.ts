@@ -19,7 +19,7 @@ export type ProductInput = {
   listingNotes: string;
   reviewComplaints: string;
   competitorNotes: string;
-  usSignal: "rising" | "falling" | "flat" | "no-analogue";
+  usSignal: "rising" | "falling" | "flat" | "no-analogue" | "unchecked";
 };
 
 export const DEFAULT_PRODUCT: ProductInput = {
@@ -30,7 +30,7 @@ export const DEFAULT_PRODUCT: ProductInput = {
   listingNotes: "",
   reviewComplaints: "",
   competitorNotes: "",
-  usSignal: "no-analogue",
+  usSignal: "unchecked",
 };
 
 /** Above this, freight and FBA size tiers start eating the margin. */
@@ -145,6 +145,8 @@ export function buildJudgePrompt(p: ProductInput): string {
     flat: "Flat in the US.",
     "no-analogue":
       "No meaningful US analogue. This is NEUTRAL — do not treat the absence of a US signal as a negative. Some products are UK-specific.",
+    unchecked:
+      "NOT CHECKED. The seller has not looked at US demand for this product yet. Treat this as missing information, not as a neutral or negative reading — do not infer anything about US demand either way. If a US signal would materially change your verdict, say so explicitly and tell him to check Google Trends (US vs UK, 5-year window) before committing money.",
   }[p.usSignal];
 
   const weightNote =
@@ -224,8 +226,9 @@ export function parseProductInput(
   };
 
   const signal = raw.usSignal;
-  if (!["rising", "falling", "flat", "no-analogue"].includes(signal as string)) {
-    errors.push("usSignal must be rising, falling, flat or no-analogue");
+  const SIGNALS = ["rising", "falling", "flat", "no-analogue", "unchecked"];
+  if (!SIGNALS.includes(signal as string)) {
+    errors.push(`usSignal must be one of: ${SIGNALS.join(", ")}`);
   }
 
   const value: ProductInput = {
