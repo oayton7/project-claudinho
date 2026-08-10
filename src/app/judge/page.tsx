@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   DEFAULT_PRODUCT,
   WEIGHT_LIMIT_GRAMS,
+  judgementToMarkdown,
   type Judgement,
   type Premortem,
   type ProductInput,
@@ -81,6 +82,7 @@ export default function JudgePage() {
   const [errors, setErrors] = useState<string[]>([]);
   const [pending, setPending] = useState<"judge" | "premortem" | null>(null);
   const [thinking, setThinking] = useState("");
+  const [copied, setCopied] = useState(false);
 
   const set = <K extends keyof ProductInput>(key: K, value: ProductInput[K]) =>
     setProduct((prev) => ({ ...prev, [key]: value }));
@@ -167,6 +169,30 @@ export default function JudgePage() {
 
   const totalPence = usage.reduce((sum, u) => sum + u.costPence, 0);
   const overweight = product.weightGrams > WEIGHT_LIMIT_GRAMS;
+
+  /**
+   * Nothing is stored yet, so copying the result out is the only way to keep
+   * it. Includes the inputs as well as the verdict — a score you cannot trace
+   * back to what you fed it is not worth keeping.
+   */
+  async function copyResult() {
+    if (!judgement) return;
+    await navigator.clipboard.writeText(
+      judgementToMarkdown(product, judgement, premortem, totalPence),
+    );
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  }
+
+  /** Clears everything except the running cost, ready for the next product. */
+  function nextProduct() {
+    setProduct(DEFAULT_PRODUCT);
+    setJudgement(null);
+    setPremortem(null);
+    setThinking("");
+    setErrors([]);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   return (
     <div className="flex flex-1 flex-col items-center bg-zinc-50 font-sans dark:bg-black">
@@ -335,6 +361,28 @@ export default function JudgePage() {
                     {judgement.verdict}
                   </p>
                   <p className="mt-2 text-sm leading-6 opacity-90">{judgement.summary}</p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 rounded border border-zinc-300 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
+                  <button
+                    type="button"
+                    onClick={copyResult}
+                    className="rounded bg-black px-4 py-1.5 text-sm font-medium text-white dark:bg-zinc-100 dark:text-black"
+                  >
+                    {copied ? "Copied ✓" : "Copy result as markdown"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={nextProduct}
+                    className="rounded border border-zinc-400 px-4 py-1.5 text-sm text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
+                  >
+                    Next product
+                  </button>
+                  <p className="w-full text-xs leading-5 text-zinc-500">
+                    Nothing is saved yet. Copy this into your notes before moving
+                    on, or it is gone. Run the pre-mortem first if you want it
+                    included.
+                  </p>
                 </div>
 
                 <div

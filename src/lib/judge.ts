@@ -195,6 +195,105 @@ Concerns already flagged: ${j.concerns.join("; ") || "none"}
 Now tell him why it failed.`;
 }
 
+/**
+ * Formats a completed judgement as markdown, so a result can be kept before
+ * there is a database to keep it in. Paste into field-notes.md, a doc, or
+ * anywhere else. Deliberately includes the inputs as well as the verdict —
+ * a score you cannot trace back to what you fed it is not worth keeping.
+ */
+export function judgementToMarkdown(
+  p: ProductInput,
+  j: Judgement,
+  pm: Premortem | null,
+  totalPence: number,
+): string {
+  const stars = (n: number) => "●".repeat(n) + "○".repeat(5 - n);
+  const date = new Date().toISOString().slice(0, 10);
+
+  const lines = [
+    `## ${p.name || "(unnamed product)"} — ${j.verdict}`,
+    ``,
+    `*Judged ${date} · ${p.category} · £${p.sellPrice.toFixed(2)} · ${p.weightGrams}g · US signal: ${p.usSignal} · cost ${totalPence.toFixed(1)}p*`,
+    ``,
+    j.summary,
+    ``,
+    `### Target buyer${j.targetBuyer.nameable ? "" : " — HARD FAIL"}`,
+    ``,
+    j.targetBuyer.buyer || "Could not be named.",
+    ``,
+    `### Improvability`,
+    ``,
+    `| | Score | Why |`,
+    `|---|---|---|`,
+    `| Product | ${stars(j.improvability.product.score)} | ${j.improvability.product.reasoning} |`,
+    `| Marketing | ${stars(j.improvability.marketing.score)} | ${j.improvability.marketing.reasoning} |`,
+    `| Branding | ${stars(j.improvability.branding.score)} | ${j.improvability.branding.reasoning} |`,
+    ``,
+    `**The specific fix:** ${j.improvability.specificFix}`,
+    ``,
+    `### Can you sell it`,
+    ``,
+    `| | Score | Why |`,
+    `|---|---|---|`,
+    `| Visual | ${stars(j.marketability.visual.score)} | ${j.marketability.visual.reasoning} |`,
+    `| Solves a problem | ${stars(j.marketability.problem.score)} | ${j.marketability.problem.reasoning} |`,
+    `| Giftable | ${stars(j.marketability.giftable.score)} | ${j.marketability.giftable.reasoning} |`,
+    `| Repeat purchase | ${stars(j.marketability.repeatPurchase.score)} | ${j.marketability.repeatPurchase.reasoning} |`,
+    ``,
+    `### If it's that obvious, why hasn't someone fixed it?`,
+    ``,
+    j.whyHasntSomeoneFixedIt,
+    ``,
+    ...(j.concerns.length > 0
+      ? [`**Concerns:**`, ``, ...j.concerns.map((c) => `- ${c}`), ``]
+      : []),
+  ];
+
+  if (pm) {
+    lines.push(
+      `### Pre-mortem`,
+      ``,
+      `*${pm.scenario}*`,
+      ``,
+      ...pm.causes.flatMap((c) => [
+        `**${c.cause}** (${c.likelihood})`,
+        ``,
+        `- Cost: ${c.whatItWouldCost}`,
+        `- Could you see it coming: ${c.couldYouSeeItComing}`,
+        ``,
+      ]),
+      `**Answer this before spending anything:** ${pm.theQuestionToAnswerFirst}`,
+      ``,
+    );
+  }
+
+  lines.push(
+    `<details><summary>What I fed it</summary>`,
+    ``,
+    `**Listings:**`,
+    ``,
+    "```",
+    p.listingNotes || "(none)",
+    "```",
+    ``,
+    `**Reviews:**`,
+    ``,
+    "```",
+    p.reviewComplaints || "(none)",
+    "```",
+    ``,
+    `**Competition:**`,
+    ``,
+    "```",
+    p.competitorNotes || "(none)",
+    "```",
+    ``,
+    `</details>`,
+  );
+
+  return lines.join("\n");
+}
+
 /** Never trust what arrives over HTTP. */
 export function parseProductInput(
   body: unknown,
