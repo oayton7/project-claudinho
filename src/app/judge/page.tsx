@@ -13,6 +13,7 @@ import {
   WEIGHT_LIMIT_GRAMS,
   judgementToMarkdown,
   type Judgement,
+  type YourView,
   type Premortem,
   type ProductInput,
 } from "@/lib/judge";
@@ -90,6 +91,7 @@ export default function JudgePage() {
   const [thinking, setThinking] = useState("");
   const [copied, setCopied] = useState(false);
   const [images, setImages] = useState<JudgeImage[]>([]);
+  const [yours, setYours] = useState<YourView>({ verdict: "", notes: "" });
 
   async function addImageFiles(files: File[]) {
     const room = MAX_IMAGES - images.length;
@@ -216,7 +218,7 @@ export default function JudgePage() {
   async function copyResult() {
     if (!judgement) return;
     await navigator.clipboard.writeText(
-      judgementToMarkdown(product, judgement, premortem, totalPence),
+      judgementToMarkdown(product, judgement, premortem, totalPence, yours),
     );
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
@@ -226,6 +228,7 @@ export default function JudgePage() {
   function nextProduct() {
     setProduct(DEFAULT_PRODUCT);
     setImages([]);
+    setYours({ verdict: "", notes: "" });
     setJudgement(null);
     setPremortem(null);
     setThinking("");
@@ -538,6 +541,55 @@ export default function JudgePage() {
                       ))}
                     </ul>
                   )}
+                </div>
+
+                <div className="rounded border border-zinc-400 bg-white p-5 dark:border-zinc-600 dark:bg-zinc-900">
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
+                    What do you think?
+                  </h2>
+                  <p className="mt-1 text-xs leading-5 text-zinc-600 dark:text-zinc-400">
+                    Where you disagree with the Judge is the only thing that
+                    tells us which part of the rubric is wrong. You also know
+                    things it does not: what you have seen abroad, what a
+                    supplier told you, what your gut says.
+                  </p>
+
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {(["TEST", "PARK", "KILL"] as const).map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() =>
+                          setYours((y) => ({ ...y, verdict: y.verdict === v ? "" : v }))
+                        }
+                        className={`rounded border px-3 py-1 text-xs font-medium ${
+                          yours.verdict === v
+                            ? "border-black bg-black text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-black"
+                            : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
+                        }`}
+                      >
+                        I say {v}
+                      </button>
+                    ))}
+                    {yours.verdict && yours.verdict !== judgement.verdict && (
+                      <span className="self-center text-xs font-medium text-amber-700 dark:text-amber-500">
+                        You disagree — worth writing down why
+                      </span>
+                    )}
+                  </div>
+
+                  <textarea
+                    rows={4}
+                    value={yours.notes}
+                    onChange={(e) =>
+                      setYours((y) => ({ ...y, notes: e.target.value }))
+                    }
+                    placeholder="What has it missed? What do you know that it does not?"
+                    className="mt-3 w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-sm text-black dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                  />
+                  <p className="mt-1.5 text-xs text-zinc-500">
+                    Included when you copy the result.
+                  </p>
                 </div>
 
                 {!premortem ? (

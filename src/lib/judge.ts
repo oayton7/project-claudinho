@@ -215,11 +215,17 @@ Now tell him why it failed.`;
  * anywhere else. Deliberately includes the inputs as well as the verdict —
  * a score you cannot trace back to what you fed it is not worth keeping.
  */
+export type YourView = {
+  verdict: "TEST" | "PARK" | "KILL" | "";
+  notes: string;
+};
+
 export function judgementToMarkdown(
   p: ProductInput,
   j: Judgement,
   pm: Premortem | null,
   totalPence: number,
+  yours: YourView,
 ): string {
   const stars = (n: number) => "●".repeat(n) + "○".repeat(5 - n);
   const date = new Date().toISOString().slice(0, 10);
@@ -262,6 +268,25 @@ export function judgementToMarkdown(
       ? [`**Concerns:**`, ``, ...j.concerns.map((c) => `- ${c}`), ``]
       : []),
   ];
+
+  // Oscar's own view goes near the top of the record, not buried at the end.
+  // When these two disagree, that disagreement is the thing worth reading
+  // later — it is what tells us which part of the rubric is wrong.
+  if (yours.verdict || yours.notes.trim()) {
+    const agrees = yours.verdict === j.verdict;
+    const headline = yours.verdict
+      ? `**I say ${yours.verdict}** — ${agrees ? "agrees with the Judge" : `**disagrees** (Judge said ${j.verdict})`}`
+      : `**My notes**`;
+    lines.splice(
+      5,
+      0,
+      `### My view`,
+      ``,
+      headline,
+      ``,
+      ...(yours.notes.trim() ? [yours.notes.trim(), ``] : []),
+    );
+  }
 
   if (pm) {
     lines.push(
