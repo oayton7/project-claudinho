@@ -50,7 +50,11 @@ export async function POST(request: Request) {
     const stream = await guarded(async (client) =>
       client.messages.stream({
         model: MODEL,
-        max_tokens: 8000,
+        // A hard cap shared by thinking AND the final answer, not two
+        // separate budgets. Too tight and the structured JSON gets cut off
+        // mid-string once thinking has used most of it. This costs nothing
+        // extra to raise — billed on tokens actually produced, not the cap.
+        max_tokens: 16000,
         system: JUDGE_SYSTEM_PROMPT,
         thinking: { type: "adaptive", display: "summarized" },
         output_config: {

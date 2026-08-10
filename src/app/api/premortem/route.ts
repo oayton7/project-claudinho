@@ -58,7 +58,10 @@ export async function POST(request: Request) {
     const stream = await guarded(async (client) =>
       client.messages.stream({
         model: MODEL,
-        max_tokens: 8000,
+        // Same shared-budget issue as the Judge route, and worse here: the
+        // pre-mortem produces 8-11 multi-field causes, the longest structured
+        // output in the app, so it needs the most headroom.
+        max_tokens: 24000,
         system: PREMORTEM_SYSTEM_PROMPT,
         thinking: { type: "adaptive", display: "summarized" },
         output_config: {
