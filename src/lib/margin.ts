@@ -21,6 +21,13 @@ export type MarginInput = {
   totalCapital: number;
   unitsPerMonth: number;
   vatRatePct: number;
+  /**
+   * Import VAT charged at the border on goods + freight + duty. Set to 0 only
+   * if you genuinely are not paying it. Below the £90k threshold this is
+   * irrecoverable and is a real cost; once VAT-registered you reclaim it, so
+   * it becomes a cash-flow problem rather than a margin one.
+   */
+  importVatRatePct: number;
 };
 
 export type WaterfallLine = {
@@ -40,7 +47,11 @@ export type Check = {
 };
 
 export type MarginResult = {
+  /** Includes irrecoverable import VAT. This is what a non-registered seller pays. */
   landedUnitCost: number;
+  /** Excludes import VAT, because a registered seller reclaims it. */
+  landedUnitCostRegistered: number;
+  importVat: number;
   waterfall: WaterfallLine[];
   contribution: number;
   netMarginPct: number;
@@ -73,6 +84,7 @@ export const DEFAULT_INPUT: MarginInput = {
   totalCapital: 3000,
   unitsPerMonth: 60,
   vatRatePct: 20,
+  importVatRatePct: 20,
 };
 
 const round = (n: number) => Math.round(n * 100) / 100;
@@ -96,12 +108,24 @@ export function calculateMargin(input: MarginInput): MarginResult {
     totalCapital,
     unitsPerMonth,
     vatRatePct,
+    importVatRatePct,
   } = input;
 
   const referralFee = sellPrice * (referralFeePct / 100);
   const fuelSurcharge = fbaFee * (fuelSurchargePct / 100);
-  const landedUnitCost =
+
+  // Import VAT is charged on goods + freight + duty at the border. Prep is a
+  // UK service billed separately, so it sits outside this base.
+  const importVat =
+    (fobUnitPrice + freightPerUnit + dutyPerUnit) * (importVatRatePct / 100);
+
+  // The two VAT states have genuinely different landed costs. Below the
+  // threshold you cannot reclaim import VAT, so it is a real cost. Once
+  // registered you reclaim it and it drops out of the margin entirely.
+  const landedUnitCostRegistered =
     fobUnitPrice + freightPerUnit + dutyPerUnit + prepPerUnit;
+  const landedUnitCost = landedUnitCostRegistered + importVat;
+
   const returnsProvision = sellPrice * (returnsPct / 100);
 
   // Output VAT is the VAT element inside a VAT-inclusive shelf price, so it is
@@ -117,7 +141,10 @@ export function calculateMargin(input: MarginInput): MarginResult {
     landedUnitCost;
 
   const contribution = beforeReturnsAndAds - returnsProvision - adCostPerUnit;
-  const contributionVatRegistered = contribution - outputVat;
+
+  // Registered: you owe output VAT, but you get the import VAT back. Both
+  // legs matter — modelling only the output VAT overstates the cliff.
+  const contributionVatRegistered = contribution - outputVat + importVat;
 
   const netMarginPct = sellPrice > 0 ? (contribution / sellPrice) * 100 : 0;
   const netMarginVatRegisteredPct =
@@ -154,8 +181,13 @@ export function calculateMargin(input: MarginInput): MarginResult {
     { label: "Storage while held", amount: -storagePerUnit },
     {
       label: "Landed unit cost",
-      amount: -landedUnitCost,
+      amount: -landedUnitCostRegistered,
       note: `FOB ${gbp(fobUnitPrice)} + freight ${gbp(freightPerUnit)} + duty ${gbp(dutyPerUnit)} + prep ${gbp(prepPerUnit)}`,
+    },
+    {
+      label: `Import VAT (${importVatRatePct}%)`,
+      amount: -importVat,
+      note: "Charged at the border on goods, freight and duty. You cannot reclaim this until you are VAT-registered, so below £90k it is a real cost",
     },
     { label: `Returns provision (${returnsPct}%)`, amount: -returnsProvision },
     {
@@ -200,7 +232,7 @@ export function calculateMargin(input: MarginInput): MarginResult {
       threshold: "≥ 15%",
       pass: netMarginVatRegisteredPct >= 15,
       hard: false,
-      note: "A warning, not a kill. The figure ignores input VAT recovery so the truth is better than shown, but a product that only works below £90k still needs a repricing plan before you get there.",
+      note: "A warning, not a kill. Both legs of registration are now modelled — you owe output VAT but reclaim import VAT — so this figure is honest rather than pessimistic. A product that only works below £90k still needs a repricing plan before you get there.",
     },
     {
       label: "Days to pay back the first order",
@@ -229,6 +261,8 @@ export function calculateMargin(input: MarginInput): MarginResult {
 
   return {
     landedUnitCost: round(landedUnitCost),
+    landedUnitCostRegistered: round(landedUnitCostRegistered),
+    importVat: round(importVat),
     waterfall: waterfall.map((l) => ({ ...l, amount: round(l.amount) })),
     contribution: round(contribution),
     netMarginPct: round(netMarginPct),
@@ -262,6 +296,7 @@ const NUMERIC_FIELDS: (keyof MarginInput)[] = [
   "totalCapital",
   "unitsPerMonth",
   "vatRatePct",
+  "importVatRatePct",
 ];
 
 /**

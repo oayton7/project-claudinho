@@ -82,6 +82,12 @@ const GROUPS: FieldGroup[] = [
         hint: "Barcoding, polybagging, bundling. A prep centre does this before stock reaches Amazon.",
         suffix: "£",
       },
+      {
+        key: "importVatRatePct",
+        label: "Import VAT",
+        hint: "Charged at the border on goods, freight and duty. Below £90k you cannot reclaim it, so it is a straight cost. Once registered you get it back. Leave at 20% unless you know otherwise.",
+        suffix: "%",
+      },
     ],
   },
   {
@@ -153,7 +159,11 @@ const GLOSSARY: { term: string; body: string }[] = [
   },
   {
     term: "Landed cost",
-    body: "Supplier price plus freight plus duty plus prep. Everything it takes to get one unit into Amazon. Should be under 30% of the sell price.",
+    body: "Supplier price plus freight plus duty plus prep plus import VAT. Everything it takes to get one unit into Amazon. Should be under 30% of the sell price.",
+  },
+  {
+    term: "Import VAT",
+    body: "Charged at the border on goods, freight and duty. It is the cost people most often leave out, because it does not appear on the supplier's invoice. Below £90k it is irrecoverable and adds around a fifth to your landed cost.",
   },
   {
     term: "Break-even units",
@@ -399,9 +409,10 @@ export default function MarginPage() {
                     margin overnight.
                   </p>
                   <p className="mt-2 text-xs leading-5 text-amber-800 dark:text-amber-300/80">
-                    Conservative. This ignores the input VAT you could reclaim on
-                    stock and fees once registered, so the real figure is better
-                    than shown. How much better is a question for an accountant.
+                    Both legs are modelled: registering means you owe output VAT
+                    but reclaim import VAT on stock. Still simplified — VAT on
+                    Amazon&rsquo;s own fees is not included, so the registered
+                    column remains slightly conservative.
                   </p>
                 </div>
 

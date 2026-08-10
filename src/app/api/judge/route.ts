@@ -11,8 +11,13 @@ import { MODEL, MissingApiKey, RateLimited, guarded, priceIt } from "@/lib/claud
  * POST /api/judge
  *
  * This is the route that makes the API-key lesson real. The key lives in an
- * environment variable read here, on the server. The browser posts a product
- * and gets a judgement back; it never sees the key, the rubric, or the prompt.
+ * environment variable read on the server. The browser posts a product and
+ * gets a judgement back; it never sees the key, the rubric, or the prompt.
+ *
+ * The response is a stream of newline-delimited JSON. A judgement takes over
+ * a minute, so rather than leave the page dead we stream Claude's reasoning
+ * summary as it arrives. It also happens to show you how it reached the
+ * verdict, which is worth more than a spinner.
  */
 export async function POST(request: Request) {
   let body: unknown;
@@ -29,41 +34,85 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  const product = parsed.value;
+
+  const encoder = new TextEncoder();
+  const send = (controller: ReadableStreamDefaultController, event: unknown) =>
+    controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
 
   try {
-    const response = await guarded((client) =>
-      client.messages.parse({
+    const stream = await guarded(async (client) =>
+      client.messages.stream({
         model: MODEL,
         max_tokens: 8000,
         system: JUDGE_SYSTEM_PROMPT,
+        thinking: { type: "adaptive", display: "summarized" },
         output_config: {
           effort: "high",
           format: zodOutputFormat(JudgementSchema),
         },
-        messages: [{ role: "user", content: buildJudgePrompt(parsed.value) }],
+        messages: [{ role: "user", content: buildJudgePrompt(product) }],
       }),
     );
 
-    if (response.stop_reason === "refusal") {
-      return Response.json(
-        { error: "Claude declined to answer this one. Try rephrasing the product." },
-        { status: 422 },
-      );
-    }
+    const body = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const event of stream) {
+            if (
+              event.type === "content_block_delta" &&
+              event.delta.type === "thinking_delta"
+            ) {
+              send(controller, { type: "thinking", text: event.delta.thinking });
+            }
+          }
 
-    if (!response.parsed_output) {
-      return Response.json(
-        { error: "Claude replied but not in the expected shape. Try again." },
-        { status: 502 },
-      );
-    }
+          const message = await stream.finalMessage();
 
-    const usage = priceIt(response.usage);
-    console.log(
-      `[judge] ${parsed.value.name} → ${response.parsed_output.verdict} | ${usage.inputTokens} in, ${usage.outputTokens} out, ${usage.costPence}p`,
-    );
+          if (message.stop_reason === "refusal") {
+            send(controller, {
+              type: "error",
+              error: "Claude declined this one. Try rephrasing the product.",
+            });
+            return;
+          }
 
-    return Response.json({ judgement: response.parsed_output, usage });
+          const text = message.content.find((b) => b.type === "text");
+          const judgement = JudgementSchema.safeParse(
+            text ? JSON.parse(text.text) : null,
+          );
+
+          if (!judgement.success) {
+            send(controller, {
+              type: "error",
+              error: "Claude replied but not in the expected shape. Try again.",
+            });
+            return;
+          }
+
+          const usage = priceIt(message.usage);
+          console.log(
+            `[judge] ${product.name} → ${judgement.data.verdict} | ${usage.inputTokens} in, ${usage.outputTokens} out, ${usage.costPence}p`,
+          );
+          send(controller, { type: "done", judgement: judgement.data, usage });
+        } catch (error) {
+          console.error("[judge] stream failed", error);
+          send(controller, {
+            type: "error",
+            error: "Lost the connection to Claude part-way through.",
+          });
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(body, {
+      headers: {
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    });
   } catch (error) {
     if (error instanceof MissingApiKey) {
       return Response.json({ error: error.message }, { status: 503 });

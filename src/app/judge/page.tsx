@@ -79,6 +79,7 @@ export default function JudgePage() {
   const [usage, setUsage] = useState<Usage[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [pending, setPending] = useState<"judge" | "premortem" | null>(null);
+  const [thinking, setThinking] = useState("");
 
   const set = <K extends keyof ProductInput>(key: K, value: ProductInput[K]) =>
     setProduct((prev) => ({ ...prev, [key]: value }));
@@ -107,12 +108,63 @@ export default function JudgePage() {
     }
   }
 
+  /**
+   * The judge route streams newline-delimited JSON: many "thinking" events as
+   * Claude reasons, then one "done" carrying the judgement. Read it a chunk at
+   * a time rather than waiting for the whole response.
+   */
   async function runJudge(event: React.FormEvent) {
     event.preventDefault();
     setJudgement(null);
     setPremortem(null);
-    const data = await post("/api/judge", product, "judge");
-    if (data) setJudgement(data.judgement);
+    setThinking("");
+    setErrors([]);
+    setPending("judge");
+
+    try {
+      const response = await fetch("/api/judge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(product),
+      });
+
+      if (!response.ok || !response.body) {
+        const data = await response.json().catch(() => ({}));
+        setErrors(data.details ?? [data.error ?? "Something went wrong"]);
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // A chunk can split a line in half, so keep the last partial back.
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const event = JSON.parse(line);
+          if (event.type === "thinking") {
+            setThinking((t) => t + event.text);
+          } else if (event.type === "done") {
+            setJudgement(event.judgement);
+            setUsage((u) => [...u, event.usage]);
+          } else if (event.type === "error") {
+            setErrors([event.error]);
+          }
+        }
+      }
+    } catch {
+      setErrors(["Lost the connection to the server"]);
+    } finally {
+      setPending(null);
+    }
   }
 
   async function runPremortem() {
@@ -262,12 +314,25 @@ export default function JudgePage() {
           </form>
 
           <section>
-            {!judgement ? (
+            {!judgement && thinking && (
+              <div className="rounded border border-zinc-300 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
+                <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+                  <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+                  Working through it
+                </h2>
+                <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-zinc-600 dark:text-zinc-400">
+                  {thinking}
+                </p>
+              </div>
+            )}
+
+            {!judgement && !thinking ? (
               <p className="rounded border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700">
-                Fill in what you can and press Judge. The more you put in the
-                review and listing boxes, the less it has to guess.
+                {pending === "judge"
+                  ? "Starting…"
+                  : "Fill in what you can and press Judge. The more you put in the review and listing boxes, the less it has to guess."}
               </p>
-            ) : (
+            ) : !judgement ? null : (
               <div className="space-y-8">
                 <div className={`rounded border p-5 ${VERDICT_STYLE[judgement.verdict]}`}>
                   <p className="text-2xl font-semibold tracking-tight">

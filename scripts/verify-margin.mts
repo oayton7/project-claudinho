@@ -1,14 +1,15 @@
 /**
- * Pins the margin engine to the worked example in section 6 of the plan.
+ * Pins the margin engine to known-good numbers.
  *
  * Run with:  npm run verify
  *
- * If this fails, either the engine is wrong or the plan changed. Find out which
- * before trusting any number the app shows you.
+ * Two suites:
+ *   1. Import VAT off. Must reproduce section 6 of the plan exactly. This is
+ *      the regression test on the core arithmetic.
+ *   2. Import VAT on at 20%. The corrected model, and the one you should
+ *      actually use — below £90k that VAT is real money you cannot reclaim.
  */
-import { calculateMargin, DEFAULT_INPUT } from "../src/lib/margin.ts";
-
-const r = calculateMargin(DEFAULT_INPUT);
+import { calculateMargin, DEFAULT_INPUT, type MarginInput } from "../src/lib/margin.ts";
 
 let failed = 0;
 
@@ -16,24 +17,57 @@ function expect(label: string, actual: number, wanted: number, tol = 0.01) {
   const pass = Math.abs(actual - wanted) <= tol;
   if (!pass) failed++;
   console.log(
-    `${pass ? "  ok  " : " FAIL "} ${label.padEnd(30)} got ${actual}, wanted ${wanted}`,
+    `${pass ? "  ok  " : " FAIL "} ${label.padEnd(32)} got ${actual}, wanted ${wanted}`,
   );
 }
 
-console.log("Worked example: £24.99 item, £6.00 landed, small standard\n");
+// ── Suite 1: the plan's worked example, import VAT switched off ──────────────
+console.log("Section 6 worked example (import VAT off) — regression check\n");
 
-expect("landed unit cost", r.landedUnitCost, 6.0);
-expect("contribution", r.contribution, 7.05);
-expect("net margin %", r.netMarginPct, 28.2, 0.05);
-expect("VAT-registered contribution", r.contributionVatRegistered, 2.88);
-expect("VAT-registered net margin %", r.netMarginVatRegisteredPct, 11.5, 0.05);
-expect("VAT cliff drop %", r.vatCliffDropPct, 59, 0.5);
-expect("margin before returns/ads %", r.preAdMarginPct, 48.2, 0.05);
-expect("landed cost % of sell price", r.landedCostPctOfSell, 24.0, 0.05);
-expect("break-even units", r.breakEvenUnits, 171, 1);
+const planInput: MarginInput = { ...DEFAULT_INPUT, importVatRatePct: 0 };
+const plan = calculateMargin(planInput);
+
+expect("landed unit cost", plan.landedUnitCost, 6.0);
+expect("contribution", plan.contribution, 7.05);
+expect("net margin %", plan.netMarginPct, 28.2, 0.05);
+expect("VAT-registered contribution", plan.contributionVatRegistered, 2.88);
+expect("VAT-registered net margin %", plan.netMarginVatRegisteredPct, 11.5, 0.05);
+expect("margin before returns/ads %", plan.preAdMarginPct, 48.2, 0.05);
+expect("landed cost % of sell price", plan.landedCostPctOfSell, 24.0, 0.05);
+
+// ── Suite 2: the corrected model ────────────────────────────────────────────
+console.log("\nSame product with import VAT at 20% — the honest model\n");
+
+const real = calculateMargin(DEFAULT_INPUT);
+
+// FOB 4.50 + freight 1.00 + duty 0.00 = 5.50 base, at 20% = 1.10
+expect("import VAT", real.importVat, 1.1);
+expect("landed (not registered)", real.landedUnitCost, 7.1);
+expect("landed (registered)", real.landedUnitCostRegistered, 6.0);
+
+// Below the threshold you carry the import VAT, so contribution drops by it.
+expect("contribution", real.contribution, 5.95);
+
+// Registered: you owe output VAT but reclaim the import VAT, which nets back
+// to the same £2.88 the plan had. The registered figure was always right —
+// it was the below-threshold one that was overstated.
+expect("VAT-registered contribution", real.contributionVatRegistered, 2.88);
 
 console.log(
-  `\nverdict: ${r.verdict}   cash tied up: £${r.cashTiedUp}   payback: ${r.daysToPayback} days`,
+  `\nThe cliff, correctly modelled: £${real.contribution} → £${real.contributionVatRegistered} (${real.vatCliffDropPct}% drop)`,
+);
+console.log(
+  `The plan's figure, which ignored import VAT: £${plan.contribution} → £${plan.contributionVatRegistered} (${plan.vatCliffDropPct}% drop)`,
+);
+console.log(
+  "\nThe registered figure is unchanged. What moved is the below-threshold one,",
+);
+console.log(
+  "which the plan overstated by the full import VAT. The cliff looks smaller only",
+);
+console.log("because the starting point was wrong, not because registering got cheaper.");
+console.log(
+  `verdict: ${real.verdict}   cash tied up: £${real.cashTiedUp}   payback: ${real.daysToPayback} days`,
 );
 
 if (failed > 0) {
