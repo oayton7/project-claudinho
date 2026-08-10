@@ -8,6 +8,12 @@ import {
 import { MODEL, MissingApiKey, RateLimited, guarded, priceIt } from "@/lib/claude";
 
 /**
+ * Serverless functions are killed after a fixed time. A judgement takes over a
+ * minute, which is past the default, so raise the ceiling.
+ */
+export const maxDuration = 300;
+
+/**
  * POST /api/judge
  *
  * This is the route that makes the API-key lesson real. The key lives in an

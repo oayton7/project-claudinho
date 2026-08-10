@@ -84,48 +84,27 @@ export default function JudgePage() {
   const set = <K extends keyof ProductInput>(key: K, value: ProductInput[K]) =>
     setProduct((prev) => ({ ...prev, [key]: value }));
 
-  async function post(url: string, payload: unknown, kind: "judge" | "premortem") {
+  /**
+   * Both routes stream newline-delimited JSON: many "thinking" events while
+   * Claude reasons, then one "done". Read it a chunk at a time rather than
+   * waiting for the whole response — these calls take minutes, and a silent
+   * connection that long gets dropped by the platform.
+   */
+  async function streamPost(
+    url: string,
+    payload: unknown,
+    kind: "judge" | "premortem",
+    onDone: (event: Record<string, unknown>) => void,
+  ) {
     setPending(kind);
     setErrors([]);
+    setThinking("");
+
     try {
       const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        setErrors(data.details ?? [data.error ?? "Something went wrong"]);
-        return null;
-      }
-      if (data.usage) setUsage((u) => [...u, data.usage]);
-      return data;
-    } catch {
-      setErrors(["Could not reach the server"]);
-      return null;
-    } finally {
-      setPending(null);
-    }
-  }
-
-  /**
-   * The judge route streams newline-delimited JSON: many "thinking" events as
-   * Claude reasons, then one "done" carrying the judgement. Read it a chunk at
-   * a time rather than waiting for the whole response.
-   */
-  async function runJudge(event: React.FormEvent) {
-    event.preventDefault();
-    setJudgement(null);
-    setPremortem(null);
-    setThinking("");
-    setErrors([]);
-    setPending("judge");
-
-    try {
-      const response = await fetch("/api/judge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(product),
       });
 
       if (!response.ok || !response.body) {
@@ -153,8 +132,8 @@ export default function JudgePage() {
           if (event.type === "thinking") {
             setThinking((t) => t + event.text);
           } else if (event.type === "done") {
-            setJudgement(event.judgement);
-            setUsage((u) => [...u, event.usage]);
+            if (event.usage) setUsage((u) => [...u, event.usage]);
+            onDone(event);
           } else if (event.type === "error") {
             setErrors([event.error]);
           }
@@ -167,9 +146,22 @@ export default function JudgePage() {
     }
   }
 
+  async function runJudge(event: React.FormEvent) {
+    event.preventDefault();
+    setJudgement(null);
+    setPremortem(null);
+    await streamPost("/api/judge", product, "judge", (e) =>
+      setJudgement(e.judgement as Judgement),
+    );
+  }
+
   async function runPremortem() {
-    const data = await post("/api/premortem", { product, judgement }, "premortem");
-    if (data) setPremortem(data.premortem);
+    await streamPost(
+      "/api/premortem",
+      { product, judgement },
+      "premortem",
+      (e) => setPremortem(e.premortem as Premortem),
+    );
   }
 
   const totalPence = usage.reduce((sum, u) => sum + u.costPence, 0);
@@ -314,11 +306,11 @@ export default function JudgePage() {
           </form>
 
           <section>
-            {!judgement && thinking && (
-              <div className="rounded border border-zinc-300 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
+            {pending && thinking && (
+              <div className="mb-8 rounded border border-zinc-300 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
                 <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
                   <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-                  Working through it
+                  {pending === "judge" ? "Working through it" : "Arguing against you"}
                 </h2>
                 <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-zinc-600 dark:text-zinc-400">
                   {thinking}
