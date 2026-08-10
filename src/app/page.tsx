@@ -4,7 +4,7 @@ const phases = [
   { n: 0, name: "Setup", detail: "Node, git, project scaffold", done: true },
   { n: 1, name: "Live on the internet", detail: "This page, on Vercel", done: true },
   { n: 2, name: "Margin engine", detail: "Contribution, break-even, both VAT states", done: true },
-  { n: 3, name: "Claude scoring", detail: "Marketability and pre-mortem", done: false },
+  { n: 3, name: "Claude scoring", detail: "Improvability and pre-mortem", done: true },
   { n: 4, name: "Database", detail: "Save products, pipeline board", done: false },
   { n: 5, name: "Logins", detail: "Supabase auth, row-level security", done: false },
   { n: 6, name: "The Scout", detail: "Keepa plus the US to UK arbitrage signal", done: false },
@@ -54,16 +54,23 @@ export default function Home() {
           ))}
         </ol>
 
-        <Link
-          href="/margin"
-          className="mt-10 inline-block rounded bg-black px-5 py-2.5 text-sm font-medium text-white dark:bg-zinc-100 dark:text-black"
-        >
-          Open the margin engine →
-        </Link>
+        <div className="mt-10 flex flex-wrap gap-3">
+          <Link
+            href="/margin"
+            className="rounded bg-black px-5 py-2.5 text-sm font-medium text-white dark:bg-zinc-100 dark:text-black"
+          >
+            Margin engine →
+          </Link>
+          <Link
+            href="/judge"
+            className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
+          >
+            The Judge →
+          </Link>
+        </div>
 
         <p className="mt-6 text-sm text-zinc-500">
-          Next up: Claude scores marketability and runs the pre-mortem. Set a hard
-          billing cap before that session starts.
+          Next up: a database, so the products you score are still here tomorrow.
         </p>
       </main>
     </div>
