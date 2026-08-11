@@ -36,5 +36,5 @@ export async function middleware(request: NextRequest) {
 export const config = {
   // Everything except the login route itself, Next's internals, and static
   // files. Without the exclusions the login page would redirect to itself.
-  matcher: ["/((?!login|api/login|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!login|api/login|api/health|_next/static|_next/image|favicon.ico).*)"],
 };
