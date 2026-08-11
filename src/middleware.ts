@@ -10,7 +10,7 @@ import { COOKIE_NAME, safeEqual, tokenFor } from "@/lib/gate";
  * one spends your API credit.
  */
 export async function middleware(request: NextRequest) {
-  const password = process.env.SITE_PASSWORD;
+  const password = process.env.SITE_PASSWORD?.trim();
 
   // No password configured means the gate is off. Deliberate: it keeps local
   // development frictionless, and an empty SITE_PASSWORD in production is a

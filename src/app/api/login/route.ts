@@ -8,7 +8,9 @@ import { COOKIE_NAME, safeEqual, tokenFor } from "@/lib/gate";
  * logged — the cookie holds a hash of it.
  */
 export async function POST(request: Request) {
-  const configured = process.env.SITE_PASSWORD;
+  // Trimmed: an env var pasted into a dashboard very often carries a
+  // trailing space or newline, and nobody means their password to include one.
+  const configured = process.env.SITE_PASSWORD?.trim();
   if (!configured) {
     return Response.json({ error: "No site password is set" }, { status: 503 });
   }
@@ -16,7 +18,7 @@ export async function POST(request: Request) {
   let submitted = "";
   try {
     const body = (await request.json()) as { password?: unknown };
-    submitted = typeof body.password === "string" ? body.password : "";
+    submitted = typeof body.password === "string" ? body.password.trim() : "";
   } catch {
     return Response.json({ error: "Body must be valid JSON" }, { status: 400 });
   }

@@ -43,12 +43,27 @@ export async function GET() {
     .sort();
 
   return Response.json({
-    siteGate: {
-      configured: present("SITE_PASSWORD"),
-      note: present("SITE_PASSWORD")
-        ? "Gate is on."
-        : "SITE_PASSWORD not visible to this build — the site is OPEN. Set it in Vercel, then redeploy.",
-    },
+    siteGate: (() => {
+      const raw = process.env.SITE_PASSWORD;
+      if (!raw) {
+        return {
+          configured: false,
+          note: "SITE_PASSWORD not visible to this build — the site is OPEN. Set it in Vercel, then redeploy.",
+        };
+      }
+      // Shape only, never the value. A password pasted into Vercel very often
+      // picks up a trailing space or newline, which makes it silently refuse
+      // the thing you are certain you typed correctly.
+      return {
+        configured: true,
+        length: raw.length,
+        hasSurroundingWhitespace: raw !== raw.trim(),
+        note:
+          raw !== raw.trim()
+            ? "The stored password has a space or newline around it. That is almost certainly why it will not accept what you type."
+            : "Gate is on.",
+      };
+    })(),
     anthropic: {
       configured: present("ANTHROPIC_API_KEY"),
     },
