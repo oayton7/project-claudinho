@@ -90,6 +90,8 @@ export default function JudgePage() {
   const [pending, setPending] = useState<"judge" | "premortem" | null>(null);
   const [thinking, setThinking] = useState("");
   const [copied, setCopied] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [images, setImages] = useState<JudgeImage[]>([]);
   const [yours, setYours] = useState<YourView>({ verdict: "", notes: "" });
 
@@ -224,11 +226,42 @@ export default function JudgePage() {
     setTimeout(() => setCopied(false), 2500);
   }
 
+  /** Writes the product, its judgement and any pre-mortem to the database. */
+  async function saveToDatabase() {
+    if (!judgement) return;
+    setSaving(true);
+    setErrors([]);
+    try {
+      const response = await fetch("/api/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product,
+          judgement,
+          premortem,
+          yours,
+          usage: usage.at(-1) ?? null,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setErrors(data.details ?? [data.error ?? "Could not save"]);
+        return;
+      }
+      setSaved(data.productId);
+    } catch {
+      setErrors(["Could not reach the server"]);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   /** Clears everything except the running cost, ready for the next product. */
   function nextProduct() {
     setProduct(DEFAULT_PRODUCT);
     setImages([]);
     setYours({ verdict: "", notes: "" });
+    setSaved(null);
     setJudgement(null);
     setPremortem(null);
     setThinking("");
@@ -459,6 +492,14 @@ export default function JudgePage() {
                 <div className="flex flex-wrap items-center gap-3 rounded border border-zinc-300 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
                   <button
                     type="button"
+                    onClick={saveToDatabase}
+                    disabled={saving || saved !== null}
+                    className="rounded bg-emerald-700 px-4 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                  >
+                    {saved ? "Saved ✓" : saving ? "Saving…" : "Save to database"}
+                  </button>
+                  <button
+                    type="button"
                     onClick={copyResult}
                     className="rounded bg-black px-4 py-1.5 text-sm font-medium text-white dark:bg-zinc-100 dark:text-black"
                   >
@@ -472,9 +513,9 @@ export default function JudgePage() {
                     Next product
                   </button>
                   <p className="w-full text-xs leading-5 text-zinc-500">
-                    Nothing is saved yet. Copy this into your notes before moving
-                    on, or it is gone. Run the pre-mortem first if you want it
-                    included.
+                    {saved
+                      ? "Saved. It will be in your products list tomorrow."
+                      : "Run the pre-mortem and fill in your own view first — both get saved with it."}
                   </p>
                 </div>
 

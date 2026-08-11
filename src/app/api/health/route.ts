@@ -9,6 +9,30 @@
  * nothing, and having this available before the password gate works is the
  * whole point — it is how you diagnose the gate itself.
  */
+import { getDb } from "@/lib/db";
+
+/**
+ * Counts rows without returning any. Proves the credentials work, the schema
+ * exists and the tables are reachable, while telling an unauthenticated
+ * caller nothing about what is in them.
+ */
+async function checkDatabase() {
+  try {
+    const db = getDb();
+    const { count, error } = await db
+      .from("products")
+      .select("*", { count: "exact", head: true });
+
+    if (error) return { connected: false, note: error.message };
+    return { connected: true, products: count ?? 0 };
+  } catch (error) {
+    return {
+      connected: false,
+      note: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
 export async function GET() {
   const present = (name: string) => Boolean(process.env[name]);
 
@@ -31,6 +55,7 @@ export async function GET() {
     supabase: {
       variablesFound: supabaseVars,
       count: supabaseVars.length,
+      database: await checkDatabase(),
     },
     deployment: {
       env: process.env.VERCEL_ENV ?? "local",

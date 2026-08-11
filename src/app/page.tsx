@@ -5,7 +5,7 @@ const phases = [
   { n: 1, name: "Live on the internet", detail: "This page, on Vercel", done: true },
   { n: 2, name: "Margin engine", detail: "Contribution, break-even, both VAT states", done: true },
   { n: 3, name: "Claude scoring", detail: "Improvability and pre-mortem", done: true },
-  { n: 4, name: "Database", detail: "Save products, pipeline board", done: false },
+  { n: 4, name: "Database", detail: "Save products, pipeline board", done: true },
   { n: 5, name: "Logins", detail: "Supabase auth, row-level security", done: false },
   { n: 6, name: "The Scout", detail: "Keepa plus the US to UK arbitrage signal", done: false },
 ];
@@ -67,10 +67,16 @@ export default function Home() {
           >
             The Judge →
           </Link>
+          <Link
+            href="/products"
+            className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
+          >
+            Products →
+          </Link>
         </div>
 
         <p className="mt-6 text-sm text-zinc-500">
-          Next up: a database, so the products you score are still here tomorrow.
+          Next up: logins, so this stops relying on one shared password.
         </p>
       </main>
     </div>
