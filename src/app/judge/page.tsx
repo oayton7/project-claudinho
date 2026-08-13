@@ -413,12 +413,21 @@ export default function JudgePage() {
             <fieldset className="text-sm">
               <legend className="text-zinc-700 dark:text-zinc-300">US signal</legend>
               <span className="mt-0.5 block text-xs leading-4 text-zinc-500">
-                US trends run roughly a year ahead of the UK. Check it on Google
-                Trends: search the term, add the same term for the United States,
-                set 5 years. &ldquo;No US equivalent&rdquo; is neutral, not a mark
-                against. &ldquo;Haven&rsquo;t checked&rdquo; is honest and the
-                Judge will say if it needs the answer.
+                US trends run roughly a year ahead of the UK, so a rising US
+                curve is a UK opportunity arriving later. &ldquo;No US
+                equivalent&rdquo; is neutral, not a mark against.
               </span>
+              {product.name.trim() && (
+                <a
+                  href={`https://trends.google.com/trends/explore?date=today%205-y&geo=GB,US&q=${encodeURIComponent(product.name.trim())},${encodeURIComponent(product.name.trim())}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1.5 inline-block text-xs font-medium text-blue-700 underline dark:text-blue-400"
+                >
+                  Check &ldquo;{product.name.trim()}&rdquo; on Google Trends
+                  (UK vs US, 5 years) →
+                </a>
+              )}
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {US_SIGNALS.map((s) => (
                   <button
