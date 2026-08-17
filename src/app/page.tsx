@@ -73,6 +73,12 @@ export default function Home() {
           >
             Products →
           </Link>
+          <Link
+            href="/keepa"
+            className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
+          >
+            Keepa check →
+          </Link>
         </div>
 
         <p className="mt-6 text-sm text-zinc-500">
