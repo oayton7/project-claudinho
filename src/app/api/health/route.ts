@@ -72,6 +72,12 @@ export async function GET() {
       note: present("KEEPA_API_KEY")
         ? "Key present. Verify the data format with /api/keepa/probe?asin=...&domain=uk before trusting any derived number."
         : "KEEPA_API_KEY not set. Phase 6 is inert until it is.",
+      // Names only, never values. A typo in the variable name is the most
+      // likely cause of "I set it and it still says not set", and this turns
+      // that from a guessing game into a one-line answer.
+      similarNamesFound: Object.keys(process.env)
+        .filter((k) => /KEEPA|KEPA|KEEEPA/i.test(k))
+        .sort(),
     },
     supabase: {
       variablesFound: supabaseVars,
