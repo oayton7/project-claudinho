@@ -37,6 +37,7 @@ export type ProductRow = {
   created_at: string;
   updated_at: string;
   name: string;
+  asin: string | null;
   category: string;
   stage: Stage;
   sell_price: number;

@@ -13,6 +13,8 @@ import { z } from "zod";
 
 export type ProductInput = {
   name: string;
+  /** The ten-character Amazon id, from the listing URL after /dp/. Optional, but without it there is no Keepa lookup and no way back to the listing. */
+  asin: string;
   category: string;
   sellPrice: number;
   weightGrams: number;
@@ -24,6 +26,7 @@ export type ProductInput = {
 
 export const DEFAULT_PRODUCT: ProductInput = {
   name: "",
+  asin: "",
   category: "",
   sellPrice: 24.99,
   weightGrams: 300,
@@ -211,7 +214,7 @@ export function buildJudgePrompt(p: ProductInput): string {
 
   return `Score this candidate product.
 
-**Product:** ${p.name}
+**Product:** ${p.name}${p.asin ? ` (ASIN ${p.asin})` : ""}
 **Category:** ${p.category}
 **Target sell price:** £${p.sellPrice.toFixed(2)}
 **Weight:** ${p.weightGrams}g
@@ -458,6 +461,7 @@ export function parseProductInput(
 
   const value: ProductInput = {
     name: str("name", true, 200),
+    asin: str("asin", false, 20).toUpperCase().trim(),
     category: str("category", true, 100),
     sellPrice: num("sellPrice"),
     weightGrams: num("weightGrams"),

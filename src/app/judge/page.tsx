@@ -301,6 +301,21 @@ export default function JudgePage() {
             </label>
 
             <label className="block text-sm">
+              <span className="block text-zinc-700 dark:text-zinc-300">ASIN</span>
+              <span className="mt-0.5 block text-xs leading-4 text-zinc-500">
+                The ten characters after /dp/ in the Amazon URL. Optional, but
+                without it there is no Keepa lookup and no way back to the
+                listing in a fortnight.
+              </span>
+              <input
+                value={product.asin}
+                onChange={(e) => set("asin", e.target.value.toUpperCase())}
+                placeholder="B0XXXXXXXX"
+                className="mt-1 w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 font-mono text-black dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              />
+            </label>
+
+            <label className="block text-sm">
               <span className="block text-zinc-700 dark:text-zinc-300">Category</span>
               <input
                 value={product.category}

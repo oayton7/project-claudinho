@@ -62,6 +62,7 @@ export async function saveProduct(input: {
     .from("products")
     .insert({
       name: input.product.name,
+      asin: input.product.asin || null,
       category: input.product.category,
       sell_price: input.product.sellPrice,
       weight_grams: input.product.weightGrams,

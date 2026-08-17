@@ -144,6 +144,23 @@ export default function ProductsPage() {
                       {p.name}
                       <span className="ml-2 text-xs font-normal text-zinc-500">
                         {p.category} · £{Number(p.sell_price).toFixed(2)} · {p.weight_grams}g
+                        {p.asin && (
+                          <>
+                            {" · "}
+                            <a
+                              href={`https://www.amazon.co.uk/dp/${p.asin}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-mono underline"
+                            >
+                              {p.asin}
+                            </a>
+                            {" · "}
+                            <Link href={`/keepa?asin=${p.asin}`} className="underline">
+                              Keepa
+                            </Link>
+                          </>
+                        )}
                       </span>
                     </h2>
                     <div className="flex items-center gap-3 text-xs">
