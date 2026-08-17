@@ -12,6 +12,7 @@ import {
   DEFAULT_PRODUCT,
   WEIGHT_LIMIT_GRAMS,
   judgementToMarkdown,
+  weightedImprovability,
   type Judgement,
   type YourView,
   type Premortem,
@@ -547,9 +548,18 @@ export default function JudgePage() {
                 </div>
 
                 <div>
-                  <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
-                    Improvability — the thing you&rsquo;re actually hunting
-                  </h2>
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
+                      Improvability — the thing you&rsquo;re actually hunting
+                    </h2>
+                    <span className="text-xs text-zinc-500">
+                      Weighted{" "}
+                      <strong className="font-semibold text-black dark:text-zinc-100">
+                        {weightedImprovability(judgement)}/5
+                      </strong>{" "}
+                      · 60% brand and marketing, 40% product
+                    </span>
+                  </div>
                   <div className="mt-2 divide-y divide-zinc-200 dark:divide-zinc-800">
                     <Score label="The product" {...judgement.improvability.product} />
                     <Score label="The marketing" {...judgement.improvability.marketing} />

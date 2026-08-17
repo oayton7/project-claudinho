@@ -67,6 +67,24 @@ export const JudgementSchema = z.object({
 
 export type Judgement = z.infer<typeof JudgementSchema>;
 
+/**
+ * Improvability weighted 60/40 — marketing and branding against product.
+ *
+ * Oscar's strategy is that marketing and branding are the lever he can
+ * actually pull, and the product improvement is what makes that story true
+ * rather than decoration. So a 5/4/2 is a better fit for him than a 2/2/5,
+ * even though the raw scores are similar.
+ *
+ * Computed here rather than asked of the model, because it is arithmetic and
+ * arithmetic should be reproducible.
+ */
+export function weightedImprovability(j: Judgement): number {
+  const brandSide =
+    (j.improvability.marketing.score + j.improvability.branding.score) / 2;
+  const productSide = j.improvability.product.score;
+  return Math.round((brandSide * 0.6 + productSide * 0.4) * 10) / 10;
+}
+
 export const PremortemSchema = z.object({
   scenario: z.string(),
   causes: z.array(
@@ -125,6 +143,29 @@ If no images are attached, say so in the *visual* reasoning and score conservati
 Score each criterion 1 to 5, where 1 is "no opportunity here" and 5 is "obvious, exploitable gap". Justify every score with something concrete from the input.
 
 **Improvability is the primary thing.** Weight your verdict accordingly.
+
+### How to weight improvability: 60/40
+
+The seller's strategy is that **marketing and branding are the main lever, and a product improvement is what makes that story true**. So:
+
+- **Marketing and branding together carry 60%** of the improvability judgement
+- **Product improvement carries 40%**
+
+A candidate with a 5 on marketing, a 4 on branding and a 2 on product is a **good** fit for this seller. The reverse — a brilliant product gap on a listing that is already beautifully marketed by a real brand — is a poor fit, because the part he is best at is already done.
+
+### The product change and the brand story must be the same thing
+
+This matters more than the weighting. **Do not treat branding as decoration on top of an unchanged product.**
+
+The brand's reason to exist should be the improvement. "We made the one that doesn't stretch out" is a brand position. "Premium kitchen essentials" is wallpaper, and any competitor can copy it by lunchtime.
+
+So when you write **specificFix**, tie the three together explicitly:
+
+1. What changes about the product, in specification terms
+2. What that lets the listing claim that competitors cannot
+3. Why that claim is a brand rather than a bullet point
+
+If a product genuinely has no improvement available and the only play is nicer photography, say so plainly and mark it down. Branding with nothing underneath it is copyable in an afternoon, and that is the seller's main strategic risk.
 
 **Marketability criteria:**
 - *visual* — can a person understand this from a thumbnail in under 3 seconds, does it have a moment worth filming, and does it photograph well? (These three were merged deliberately; they are one question.)
@@ -241,7 +282,9 @@ export function judgementToMarkdown(
     ``,
     j.targetBuyer.buyer || "Could not be named.",
     ``,
-    `### Improvability`,
+    `### Improvability — weighted ${weightedImprovability(j)}/5`,
+    ``,
+    `*60% marketing and branding, 40% product.*`,
     ``,
     `| | Score | Why |`,
     `|---|---|---|`,
