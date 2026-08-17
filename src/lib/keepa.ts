@@ -141,8 +141,67 @@ export function describeShape(raw: unknown): unknown {
 
   const csv = product.csv as (number[] | null)[] | undefined;
 
+  const stats = (product.stats ?? {}) as Record<string, unknown>;
+
+  /**
+   * The named scalars are the prize. Unlike the csv array they cannot be
+   * misread by guessing a position wrong: salesRankDrops90 means what it says.
+   * Each rank drop is roughly one sale, so it is the closest free proxy for
+   * units sold that exists.
+   */
+  const namedStats = {
+    salesRankDrops30: stats.salesRankDrops30 ?? null,
+    salesRankDrops90: stats.salesRankDrops90 ?? null,
+    salesRankDrops180: stats.salesRankDrops180 ?? null,
+    salesRankDrops365: stats.salesRankDrops365 ?? null,
+    totalOfferCount: stats.totalOfferCount ?? null,
+    offerCountFBA: stats.offerCountFBA ?? null,
+    offerCountFBM: stats.offerCountFBM ?? null,
+    outOfStockPercentage90: stats.outOfStockPercentage90 ?? null,
+    outOfStockPercentage365: stats.outOfStockPercentage365 ?? null,
+    buyBoxPrice: stats.buyBoxPrice ?? null,
+    buyBoxIsAmazon: stats.buyBoxIsAmazon ?? null,
+  };
+
+  /**
+   * These are index-addressed like csv, so they are the ones that still need
+   * verifying. Showing current alongside the averages makes a wrong index
+   * obvious: a "sales rank" of 1499 sitting next to a price of 1499 is a
+   * giveaway.
+   */
+  const indexedStats = {
+    current: stats.current ?? null,
+    avg30: stats.avg30 ?? null,
+    avg90: stats.avg90 ?? null,
+    avg365: stats.avg365 ?? null,
+  };
+
+  const salesRanks = product.salesRanks as Record<string, number[]> | undefined;
+
   return {
     topLevelKeys: Object.keys(root),
+    namedStats,
+    indexedStats,
+    salesRanksByCategory: salesRanks
+      ? Object.entries(salesRanks).map(([categoryId, history]) => ({
+          categoryId,
+          points: Array.isArray(history) ? history.length / 2 : 0,
+          latestRank:
+            Array.isArray(history) && history.length > 1
+              ? history[history.length - 1]
+              : null,
+          firstDate:
+            Array.isArray(history) && history.length > 0
+              ? keepaMinutesToDate(history[0]).toISOString().slice(0, 10)
+              : null,
+          lastDate:
+            Array.isArray(history) && history.length > 1
+              ? keepaMinutesToDate(history[history.length - 2])
+                  .toISOString()
+                  .slice(0, 10)
+              : null,
+        }))
+      : null,
     tokensLeft: root.tokensLeft,
     tokensConsumed: root.tokensConsumed,
     product: {

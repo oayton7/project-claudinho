@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
 type Series = {
@@ -13,10 +13,32 @@ type Series = {
   lastDate: string | null;
 };
 
+type NamedStats = {
+  salesRankDrops30: number | null;
+  salesRankDrops90: number | null;
+  salesRankDrops180: number | null;
+  salesRankDrops365: number | null;
+  totalOfferCount: number | null;
+  offerCountFBA: number | null;
+  offerCountFBM: number | null;
+  outOfStockPercentage90: number | null;
+  buyBoxPrice: number | null;
+  buyBoxIsAmazon: boolean | null;
+};
+
 type Probe = {
   askedFor: { asin: string; domain: string };
   tokensLeft: number | null;
   shape: {
+    namedStats?: NamedStats;
+    indexedStats?: { current?: number[] | null };
+    salesRanksByCategory?: {
+      categoryId: string;
+      points: number;
+      latestRank: number | null;
+      firstDate: string | null;
+      lastDate: string | null;
+    }[] | null;
     topLevelKeys?: string[];
     tokensConsumed?: number;
     products?: number;
@@ -74,6 +96,12 @@ function plausibility(index: number, value: number | null): string {
 
 export default function KeepaPage() {
   const [asin, setAsin] = useState("");
+
+  // Linked to from the products list as /keepa?asin=...
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get("asin");
+    if (fromUrl) setAsin(fromUrl.toUpperCase());
+  }, []);
   const [domain, setDomain] = useState<"uk" | "us">("uk");
   const [probe, setProbe] = useState<Probe | null>(null);
   const [error, setError] = useState("");
@@ -178,6 +206,57 @@ export default function KeepaPage() {
                 {probe.shape.tokensConsumed ?? "unknown"}
               </p>
             </div>
+
+            {probe.shape.namedStats && (
+              <div>
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
+                  What Gate 1 actually needs
+                </h2>
+                <p className="mt-1 text-xs text-zinc-500">
+                  These are named fields, so unlike the numbered series below
+                  they cannot be misread by guessing a position wrong.
+                </p>
+                <dl className="mt-3 grid gap-x-8 gap-y-3 sm:grid-cols-2">
+                  {[
+                    ["Rank drops, 30 days", probe.shape.namedStats.salesRankDrops30, "Roughly one drop per sale. The closest free proxy for units sold"],
+                    ["Rank drops, 90 days", probe.shape.namedStats.salesRankDrops90, "The one to judge velocity on. Divide by 3 for a monthly figure"],
+                    ["Rank drops, 365 days", probe.shape.namedStats.salesRankDrops365, "Compare against 90 to see whether demand is growing or decaying"],
+                    ["Sellers, total", probe.shape.namedStats.totalOfferCount, "Enough to prove a market, few enough to enter"],
+                    ["Sellers on FBA", probe.shape.namedStats.offerCountFBA, "Your real competition"],
+                    ["Out of stock, 90 days", probe.shape.namedStats.outOfStockPercentage90, "How often competitors run dry. A high number is an opening"],
+                  ].map(([label, value, note]) => (
+                    <div key={String(label)}>
+                      <dt className="flex items-baseline justify-between gap-3">
+                        <span className="text-sm text-zinc-700 dark:text-zinc-300">{label}</span>
+                        <span className="font-mono text-sm font-semibold tabular-nums text-black dark:text-zinc-100">
+                          {value === null || value === undefined ? "—" : String(value)}
+                        </span>
+                      </dt>
+                      <dd className="mt-0.5 text-xs leading-4 text-zinc-500">{note}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
+
+            {probe.shape.salesRanksByCategory && probe.shape.salesRanksByCategory.length > 0 && (
+              <div>
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
+                  Sales rank history
+                </h2>
+                <ul className="mt-2 space-y-1 text-xs">
+                  {probe.shape.salesRanksByCategory.map((c) => (
+                    <li key={c.categoryId} className="text-zinc-600 dark:text-zinc-400">
+                      Category {c.categoryId}: latest rank{" "}
+                      <strong className="font-mono text-black dark:text-zinc-100">
+                        {c.latestRank ?? "—"}
+                      </strong>
+                      , {c.points} data points, {c.firstDate} → {c.lastDate}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {series.length === 0 ? (
               <p className="rounded border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
