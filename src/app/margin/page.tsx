@@ -196,6 +196,57 @@ const VERDICT_BLURB: Record<MarginResult["verdict"], string> = {
 
 export default function MarginPage() {
   const [input, setInput] = useState<MarginInput>(DEFAULT_INPUT);
+  const [asin, setAsin] = useState("");
+  const [lookup, setLookup] = useState<{
+    title: string | null;
+    dimensions: Record<string, number | null>;
+    notFound: string[];
+    filled: string[];
+  } | null>(null);
+  const [lookingUp, setLookingUp] = useState(false);
+
+  /**
+   * Fills what Keepa can actually tell us and says plainly what it cannot.
+   * Nothing is defaulted silently — a made-up fee looks identical to a real
+   * one on screen and ends up in a decision about stock.
+   */
+  async function fetchFromKeepa() {
+    if (!/^[A-Za-z0-9]{10}$/.test(asin.trim())) return;
+    setLookingUp(true);
+    setLookup(null);
+    setErrors([]);
+    try {
+      const response = await fetch(`/api/keepa/product?asin=${asin.trim()}&domain=uk`);
+      const data = await response.json();
+      if (!response.ok) {
+        setErrors([data.error ?? "Keepa lookup failed"]);
+        return;
+      }
+      const filled: string[] = [];
+      setInput((current) => {
+        const next = { ...current };
+        if (data.fillable?.sellPrice != null) {
+          next.sellPrice = data.fillable.sellPrice;
+          filled.push(`sell price £${data.fillable.sellPrice.toFixed(2)}`);
+        }
+        if (data.fillable?.fbaFee != null) {
+          next.fbaFee = data.fillable.fbaFee;
+          filled.push(`FBA fee £${data.fillable.fbaFee.toFixed(2)}`);
+        }
+        return next;
+      });
+      setLookup({
+        title: data.title ?? null,
+        dimensions: data.dimensions ?? {},
+        notFound: data.notFound ?? [],
+        filled,
+      });
+    } catch {
+      setErrors(["Could not reach the server"]);
+    } finally {
+      setLookingUp(false);
+    }
+  }
   const [result, setResult] = useState<MarginResult | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [pending, setPending] = useState(false);
@@ -252,6 +303,65 @@ export default function MarginPage() {
 
         <div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
           <form onSubmit={onSubmit} className="space-y-7">
+            <fieldset className="rounded border border-zinc-300 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
+              <legend className="px-1 text-sm font-semibold uppercase tracking-wide text-zinc-500">
+                Start with the ASIN
+              </legend>
+              <p className="text-xs leading-4 text-zinc-500">
+                Paste a competitor&rsquo;s ASIN and Keepa fills in what it
+                knows: the selling price and the FBA fulfilment fee. Costs one
+                token. Anything it cannot supply is listed so you know what
+                still needs looking up.
+              </p>
+              <div className="mt-2 flex gap-2">
+                <input
+                  value={asin}
+                  onChange={(e) => setAsin(e.target.value.toUpperCase())}
+                  placeholder="B0FDS8Q4XJ"
+                  className="w-40 rounded border border-zinc-300 bg-white px-2.5 py-1.5 font-mono text-sm text-black dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                />
+                <button
+                  type="button"
+                  onClick={fetchFromKeepa}
+                  disabled={lookingUp || asin.trim().length !== 10}
+                  className="rounded bg-black px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-black"
+                >
+                  {lookingUp ? "Asking Keepa…" : "Fetch"}
+                </button>
+              </div>
+
+              {lookup && (
+                <div className="mt-3 space-y-2 text-xs leading-5">
+                  {lookup.title && (
+                    <p className="font-medium text-black dark:text-zinc-100">{lookup.title}</p>
+                  )}
+                  {lookup.filled.length > 0 && (
+                    <p className="text-emerald-700 dark:text-emerald-400">
+                      Filled in: {lookup.filled.join(", ")}
+                    </p>
+                  )}
+                  {(lookup.dimensions.packageLengthMm ||
+                    lookup.dimensions.packageWeightG) && (
+                    <p className="text-zinc-600 dark:text-zinc-400">
+                      <strong className="font-medium">Packed:</strong>{" "}
+                      {lookup.dimensions.packageLengthMm ?? "?"} ×{" "}
+                      {lookup.dimensions.packageWidthMm ?? "?"} ×{" "}
+                      {lookup.dimensions.packageHeightMm ?? "?"} mm,{" "}
+                      {lookup.dimensions.packageWeightG ?? "?"} g. These
+                      dimensions decide the FBA size band, not the weight.
+                    </p>
+                  )}
+                  {lookup.notFound.length > 0 && (
+                    <ul className="list-disc space-y-0.5 pl-4 text-amber-700 dark:text-amber-500">
+                      {lookup.notFound.map((n) => (
+                        <li key={n}>{n}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </fieldset>
+
             {GROUPS.map((group) => (
               <fieldset key={group.title}>
                 <legend className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
