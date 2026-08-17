@@ -1,0 +1,180 @@
+/**
+ * Keepa — real Amazon sales rank and price history.
+ *
+ * This is the evidence Gate 1 currently guesses at: is the rank strong, is it
+ * stable, is the 12-month trend flat or decaying, how many sellers are there.
+ * None of it is available free, because Amazon blocks scraping.
+ *
+ * ## Tokens, and why there is a guard
+ *
+ * Keepa meters by tokens rather than requests. A plan generates a fixed number
+ * per minute whether you use them or not, unused ones expire after an hour,
+ * and each product costs at least one. A loop that requests a hundred products
+ * does not fail — it drains the bucket and everything else stalls for the rest
+ * of the hour. Hence the same kind of guard as claude.ts.
+ *
+ * ## The format constants below are UNVERIFIED
+ *
+ * Keepa returns history as a flat `csv` array of arrays, where the position in
+ * the outer array determines what the series means, prices are integers in
+ * cents, and timestamps are "Keepa minutes" rather than Unix time. Their docs
+ * block automated access, so the indices below are from memory and MUST be
+ * checked against a real response before any number derived from them is
+ * trusted. Use `/api/keepa/probe` to do that.
+ *
+ * Getting these wrong does not throw — it silently returns a plausible wrong
+ * number, which is the worst possible failure for a tool used to decide where
+ * £1,400 goes.
+ */
+
+export const KEEPA_DOMAIN = { US: 1, UK: 2 } as const;
+export type KeepaDomain = (typeof KEEPA_DOMAIN)[keyof typeof KEEPA_DOMAIN];
+
+/**
+ * Index into the `csv` array. UNVERIFIED — see the note above.
+ */
+export const CSV_INDEX_UNVERIFIED = {
+  AMAZON: 0,
+  NEW: 1,
+  USED: 2,
+  SALES_RANK: 3,
+  NEW_FBA: 10,
+  COUNT_NEW: 11,
+  RATING: 16,
+  COUNT_REVIEWS: 17,
+} as const;
+
+/** Keepa counts minutes from its own epoch, not the Unix one. Also unverified. */
+const KEEPA_EPOCH_OFFSET_MINUTES = 21564000;
+
+export function keepaMinutesToDate(minutes: number): Date {
+  return new Date((minutes + KEEPA_EPOCH_OFFSET_MINUTES) * 60 * 1000);
+}
+
+export class MissingKeepaKey extends Error {}
+export class KeepaTokensExhausted extends Error {}
+
+/**
+ * Deliberately conservative. A cheap plan generates 20 tokens a minute, so
+ * 60 an hour leaves plenty of headroom for the rest of the bucket while still
+ * allowing a decent research session.
+ */
+const REQUEST_LIMIT_PER_HOUR = 60;
+const requests: number[] = [];
+
+function checkRate() {
+  const hourAgo = Date.now() - 60 * 60 * 1000;
+  while (requests.length > 0 && requests[0] < hourAgo) requests.shift();
+  if (requests.length >= REQUEST_LIMIT_PER_HOUR) {
+    throw new KeepaTokensExhausted(
+      `Hit the local guard of ${REQUEST_LIMIT_PER_HOUR} Keepa requests per hour. This stops a bug draining your token bucket and stalling everything else. Wait, or raise it in src/lib/keepa.ts.`,
+    );
+  }
+  requests.push(Date.now());
+}
+
+function getKey(): string {
+  const key = process.env.KEEPA_API_KEY;
+  if (!key) {
+    throw new MissingKeepaKey(
+      "KEEPA_API_KEY is not set. Get it from keepa.com/#!api once subscribed, then add it to Vercel's environment variables and .env.local.",
+    );
+  }
+  return key;
+}
+
+/**
+ * Raw product fetch. Returns whatever Keepa sends, unparsed.
+ *
+ * Kept deliberately dumb: no interpretation happens here, so the probe route
+ * can show the real structure and the parsing can be written against fact
+ * rather than assumption.
+ */
+export async function fetchProductRaw(
+  asin: string,
+  domain: KeepaDomain,
+  options: { history?: boolean; stats?: number } = {},
+): Promise<{ raw: unknown; tokensLeft: number | null }> {
+  const key = getKey();
+  checkRate();
+
+  const params = new URLSearchParams({
+    key,
+    domain: String(domain),
+    asin,
+    history: options.history === false ? "0" : "1",
+  });
+  if (options.stats) params.set("stats", String(options.stats));
+
+  const response = await fetch(`https://api.keepa.com/product?${params}`, {
+    // Keepa is a third party; do not let a slow response hold a serverless
+    // function open until the platform kills it with no error.
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Keepa returned ${response.status}. ${response.status === 429 ? "Out of tokens — wait for the bucket to refill." : await response.text().catch(() => "")}`.trim(),
+    );
+  }
+
+  const raw = (await response.json()) as Record<string, unknown>;
+  const tokensLeft =
+    typeof raw.tokensLeft === "number" ? raw.tokensLeft : null;
+
+  return { raw, tokensLeft };
+}
+
+/**
+ * Describes the shape of a response without dumping megabytes of history.
+ * This is what turns "I think index 3 is sales rank" into "index 3 contains
+ * values in this range, which are or are not plausible ranks".
+ */
+export function describeShape(raw: unknown): unknown {
+  const root = raw as Record<string, unknown>;
+  const products = root.products as Record<string, unknown>[] | undefined;
+  const product = products?.[0];
+
+  if (!product) {
+    return { topLevelKeys: Object.keys(root ?? {}), products: 0 };
+  }
+
+  const csv = product.csv as (number[] | null)[] | undefined;
+
+  return {
+    topLevelKeys: Object.keys(root),
+    tokensLeft: root.tokensLeft,
+    tokensConsumed: root.tokensConsumed,
+    product: {
+      asin: product.asin,
+      title: product.title,
+      keysPresent: Object.keys(product).sort(),
+      hasStats: Boolean(product.stats),
+      statsKeys: product.stats ? Object.keys(product.stats as object).sort() : null,
+      // The important part: what is actually in each csv slot.
+      csvSeries: Array.isArray(csv)
+        ? csv.map((series, index) => ({
+            index,
+            present: Array.isArray(series) && series.length > 0,
+            pairs: Array.isArray(series) ? series.length / 2 : 0,
+            // Keepa interleaves [time, value, time, value, ...]
+            firstValue: Array.isArray(series) && series.length > 1 ? series[1] : null,
+            lastValue:
+              Array.isArray(series) && series.length > 1
+                ? series[series.length - 1]
+                : null,
+            firstDate:
+              Array.isArray(series) && series.length > 0
+                ? keepaMinutesToDate(series[0]).toISOString().slice(0, 10)
+                : null,
+            lastDate:
+              Array.isArray(series) && series.length > 1
+                ? keepaMinutesToDate(series[series.length - 2])
+                    .toISOString()
+                    .slice(0, 10)
+                : null,
+          }))
+        : null,
+    },
+  };
+}

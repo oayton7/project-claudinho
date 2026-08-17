@@ -67,6 +67,12 @@ export async function GET() {
     anthropic: {
       configured: present("ANTHROPIC_API_KEY"),
     },
+    keepa: {
+      configured: present("KEEPA_API_KEY"),
+      note: present("KEEPA_API_KEY")
+        ? "Key present. Verify the data format with /api/keepa/probe?asin=...&domain=uk before trusting any derived number."
+        : "KEEPA_API_KEY not set. Phase 6 is inert until it is.",
+    },
     supabase: {
       variablesFound: supabaseVars,
       count: supabaseVars.length,
