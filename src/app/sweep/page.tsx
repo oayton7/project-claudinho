@@ -74,6 +74,7 @@ export default function SweepPage() {
   const [running, setRunning] = useState(false);
   const [onlyClean, setOnlyClean] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
+  const [seeds, setSeeds] = useState("");
   const [weights, setWeights] = useState<Weights>(DEFAULT_WEIGHTS);
   const [showWeights, setShowWeights] = useState(false);
   const logEnd = useRef<HTMLDivElement>(null);
@@ -110,7 +111,15 @@ export default function SweepPage() {
       const response = await fetch("/api/keepa/sweep", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ weights }),
+        body: JSON.stringify({
+          weights,
+          // Splitting on anything that is not alphanumeric means a pasted
+          // Amazon URL works as well as a bare ASIN.
+          seedAsins: seeds
+            .toUpperCase()
+            .split(/[^A-Z0-9]+/)
+            .filter((s) => /^[A-Z0-9]{10}$/.test(s)),
+        }),
       });
 
       if (!response.body) {
@@ -140,6 +149,12 @@ export default function SweepPage() {
 
           if (event.type === "start") {
             setLog((l) => [...l, `Sweeping ${event.categories} categories…`]);
+          } else if (event.type === "seeded") {
+            const found = (event.categories as { name: string }[]) ?? [];
+            setLog((l) => [
+              ...l,
+              `Reading categories from your seeds: ${found.map((c) => c.name).join(", ")}`,
+            ]);
           } else if (event.type === "progress") {
             setLog((l) => [...l, `${event.category}…`]);
           } else if (event.type === "category") {
@@ -198,13 +213,38 @@ export default function SweepPage() {
           clearest opening you can get.
         </p>
 
-        <div className="mt-6 flex flex-wrap items-center gap-4">
+        <div className="mt-6 rounded border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+          <label className="flex flex-col gap-1">
+            <span className="text-sm font-medium text-black dark:text-zinc-100">
+              Seed it with products you already like
+            </span>
+            <span className="mb-1 text-xs leading-5 text-zinc-500">
+              Paste one or more ASINs, or whole Amazon links. The sweep reads
+              the category Amazon has actually filed each one under and searches
+              there. This is the reliable path: the built-in category list was
+              written from memory and one of the ids has already been proved
+              wrong, so without a seed the sweep may find nothing.
+            </span>
+            <input
+              value={seeds}
+              onChange={(e) => setSeeds(e.target.value)}
+              placeholder="B0FDS8Q4XJ, or https://www.amazon.co.uk/dp/B0FDS8Q4XJ"
+              className="rounded border border-zinc-300 bg-white px-2 py-1.5 font-mono text-sm text-black dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+            />
+          </label>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-4">
           <button
             onClick={() => void run()}
             disabled={running}
             className="rounded bg-black px-6 py-2.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-black"
           >
-            {running ? "Sweeping…" : "Run the sweep"}
+            {running
+              ? "Sweeping…"
+              : seeds.trim()
+                ? "Sweep these categories"
+                : "Run the sweep"}
           </button>
           <button
             onClick={() => setShowWeights((v) => !v)}
