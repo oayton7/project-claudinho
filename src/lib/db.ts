@@ -236,3 +236,44 @@ export async function updateScoutCandidate(
   const { error } = await db.from("scout_candidates").update(patch).eq("asin", asin);
   if (error) throw new Error(`Could not update ${asin}: ${error.message}`);
 }
+
+
+/**
+ * Reviews for one ASIN.
+ *
+ * Upserts, because re-pasting a longer set of reviews for a product should
+ * replace what was there rather than fail or duplicate.
+ */
+export type ReviewRow = {
+  asin: string;
+  created_at: string;
+  updated_at: string;
+  raw_text: string;
+  review_count: number;
+  star_filter: string;
+  complaints: string;
+  wished_for: string;
+  fixable: string;
+  not_fixable: string;
+  opportunity_score: number | null;
+  summary: string;
+};
+
+export async function saveReviews(input: Partial<ReviewRow> & { asin: string }) {
+  const db = getDb();
+  const { error } = await db
+    .from("reviews")
+    .upsert({ ...input, updated_at: new Date().toISOString() }, { onConflict: "asin" });
+  if (error) throw new Error(`Could not save reviews: ${error.message}`);
+}
+
+export async function getReviews(asin: string): Promise<ReviewRow | null> {
+  const db = getDb();
+  const { data, error } = await db
+    .from("reviews")
+    .select("*")
+    .eq("asin", asin)
+    .maybeSingle();
+  if (error) throw new Error(`Could not load reviews: ${error.message}`);
+  return (data as ReviewRow) ?? null;
+}

@@ -567,3 +567,63 @@ export function buildTriagePrompt(c: {
     .filter(Boolean)
     .join("\n");
 }
+
+/**
+ * Reading the reviews.
+ *
+ * This is the part of the thesis no amount of Keepa data reaches. A rating of
+ * 3.9 says people are unhappy; only the words say what about, and whether it
+ * is something you could fix with a better supplier brief or just the nature
+ * of the product.
+ *
+ * Three stars is the richest seam and worth saying why: one-star reviews are
+ * often delivery failures or the wrong item, five-star reviews say little
+ * beyond "good". Three stars is someone who wanted to like it, used it, and
+ * was let down by something specific.
+ */
+export const ReviewAnalysisSchema = z.object({
+  /** What people actually complain about, most common first. */
+  complaints: z.array(z.string()).max(8),
+  /** Things reviewers say they wish it did or had. */
+  wishedFor: z.array(z.string()).max(6),
+  /**
+   * Complaints a small seller could genuinely fix through a supplier brief,
+   * better materials, or better instructions. This is the opportunity.
+   */
+  fixable: z.array(z.string()).max(6),
+  /** Complaints inherent to the product or category. Not your opening. */
+  notFixable: z.array(z.string()).max(6),
+  /** 0-10. How much room a better version would actually have. */
+  opportunityScore: z.number().min(0).max(10),
+  /** Two or three sentences a person can act on. */
+  summary: z.string().max(600),
+});
+
+export type ReviewAnalysis = z.infer<typeof ReviewAnalysisSchema>;
+
+export const REVIEW_SYSTEM_PROMPT = `You are reading Amazon reviews for a UK first-time seller with about £3,000 of capital who is looking for a product to improve and sell better.
+
+You are looking for one thing: the gap between what people wanted and what they got. That gap is the opening.
+
+Separate complaints carefully into two piles, because the distinction decides whether the product is worth pursuing.
+
+Fixable means a small seller could plausibly address it: flimsy materials, a part that breaks, missing instructions, a size that runs wrong, poor packaging, a fiddly assembly step, a missing accessory. These are supplier-brief problems, and they are your opening.
+
+Not fixable means it is inherent to the product or category: the physics of the thing, the price point it must hit, a regulation, a use case it was never for. A long list here means the product is disappointing people for reasons a better version would not solve, so it is a worse candidate however loud the complaints are.
+
+Ignore delivery problems, wrong-item-sent, and complaints about Amazon rather than the product. Those tell you nothing about the product.
+
+Be concrete. "Poor quality" is useless; "the clip snaps after a few weeks" is something a supplier can be briefed on. Quote the specific failure, not the sentiment.
+
+Score the opportunity on how much a genuinely better version would win, not on how angry people are.`;
+
+export function buildReviewPrompt(input: {
+  productName: string;
+  starFilter: string;
+  rawText: string;
+}): string {
+  return `Product: ${input.productName}
+Reviews shown: ${input.starFilter || "unfiltered"}
+
+${input.rawText.slice(0, 60000)}`;
+}

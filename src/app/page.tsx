@@ -86,6 +86,12 @@ export default function Home() {
             Products →
           </Link>
           <Link
+            href="/reviews"
+            className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
+          >
+            Reviews →
+          </Link>
+          <Link
             href="/triage"
             className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
           >
