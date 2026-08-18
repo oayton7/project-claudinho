@@ -151,3 +151,88 @@ export async function deleteProduct(id: string) {
   const { error } = await db.from("products").delete().eq("id", id);
   if (error) throw new Error(`Could not delete the product: ${error.message}`);
 }
+
+
+/**
+ * Scout candidates.
+ *
+ * Upserts on asin, so running the sweep twice updates rather than duplicates.
+ * Oscar's own columns — dismissed, my_notes, promoted_product_id — are
+ * deliberately absent from the update list: a later sweep must never overwrite
+ * a decision he made.
+ */
+export type ScoutCandidateRow = {
+  asin: string;
+  first_seen: string;
+  last_seen: string;
+  title: string;
+  brand: string;
+  category: string;
+  price: number | null;
+  rating: number | null;
+  review_count: number | null;
+  unhappy_buyers: number | null;
+  monthly_sold: number | null;
+  sellers: number | null;
+  weight_grams: number | null;
+  max_landed_cost: number | null;
+  score: number | null;
+  coverage: number | null;
+  strengths: string;
+  listing_weaknesses: string;
+  killed_reason: string | null;
+  us_growing: boolean | null;
+  us_monthly_sold: number | null;
+  auto_verdict: "TEST" | "PARK" | "KILL" | null;
+  auto_because: string;
+  dismissed: boolean;
+  my_notes: string;
+  promoted_product_id: string | null;
+};
+
+export type ScoutCandidateInput = Omit<
+  ScoutCandidateRow,
+  "first_seen" | "last_seen" | "dismissed" | "my_notes" | "promoted_product_id"
+>;
+
+export async function saveScoutCandidates(candidates: ScoutCandidateInput[]) {
+  if (candidates.length === 0) return { saved: 0 };
+
+  const db = getDb();
+  const { error } = await db.from("scout_candidates").upsert(
+    candidates.map((c) => ({ ...c, last_seen: new Date().toISOString() })),
+    { onConflict: "asin" },
+  );
+
+  if (error) {
+    // Surfaced rather than swallowed: a silent save failure looks exactly
+    // like a successful one from the page, which is the failure mode this
+    // project keeps paying for.
+    throw new Error(`Could not save candidates: ${error.message}`);
+  }
+  return { saved: candidates.length };
+}
+
+export async function listScoutCandidates(options: { includeDismissed?: boolean } = {}) {
+  const db = getDb();
+  let query = db
+    .from("scout_candidates")
+    .select("*")
+    .order("score", { ascending: false, nullsFirst: false })
+    .limit(300);
+
+  if (!options.includeDismissed) query = query.eq("dismissed", false);
+
+  const { data, error } = await query;
+  if (error) throw new Error(`Could not load candidates: ${error.message}`);
+  return (data ?? []) as ScoutCandidateRow[];
+}
+
+export async function updateScoutCandidate(
+  asin: string,
+  patch: Partial<Pick<ScoutCandidateRow, "dismissed" | "my_notes">>,
+) {
+  const db = getDb();
+  const { error } = await db.from("scout_candidates").update(patch).eq("asin", asin);
+  if (error) throw new Error(`Could not update ${asin}: ${error.message}`);
+}

@@ -2,12 +2,15 @@ import {
   KEEPA_DOMAIN,
   KeepaTokensExhausted,
   MissingKeepaKey,
+  categoriesForAsins,
   fetchProductRaw,
   findProducts,
 } from "@/lib/keepa";
+import { saveScoutCandidates } from "@/lib/db";
 import { maxLandedCost } from "@/lib/margin";
 import {
   DEFAULT_WEIGHTS,
+  autoVerdict,
   hardKill,
   scoreCandidate,
   type ScoreResult,
@@ -48,17 +51,15 @@ const PER_CATEGORY = 10;
  */
 const US_CROSS_CHECK_LIMIT = 15;
 
-const SWEEP_CATEGORIES: { id: number; label: string }[] = [
-  { id: 11052591, label: "Home & Kitchen" },
-  { id: 60032031, label: "Garden & Outdoors" },
-  { id: 468294, label: "Sports & Outdoors" },
-  { id: 11052651, label: "Toys & Games" },
-  { id: 66280031, label: "Pet Supplies" },
-  { id: 3760911, label: "Office Products" },
-  { id: 11052721, label: "Baby" },
-  { id: 11052901, label: "Health & Personal Care" },
-  { id: 2844434031, label: "Beauty" },
-  { id: 60040031, label: "Handmade" },
+/**
+ * Fallback categories, used only when no seed ASINs are given.
+ *
+ * These ids are unverified and one of them was proved wrong: rootCategory
+ * 11052591 matches nothing at all. Seeding from an ASIN is the reliable path,
+ * and the sweep says so rather than silently returning nothing.
+ */
+const FALLBACK_CATEGORIES: { id: number; label: string }[] = [
+  { id: 11052591, label: "Home & Kitchen (unverified)" },
 ];
 
 type Candidate = {
@@ -84,6 +85,8 @@ type Candidate = {
   flags: string[];
   score: ScoreResult | null;
   killed: string | null;
+  verdict: "TEST" | "PARK" | "KILL" | null;
+  because: string;
 };
 
 type UsSignal = {
@@ -236,6 +239,8 @@ function buildCandidate(
     // Filled in after the US check, so the US signal can count towards it.
     score: null,
     killed: null,
+    verdict: null,
+    because: "",
   };
 }
 
@@ -281,6 +286,13 @@ export async function POST(request: Request) {
     limit: PER_CATEGORY,
   };
 
+  const seedAsins = Array.isArray(body.seedAsins)
+    ? (body.seedAsins as unknown[])
+        .map((a) => String(a).toUpperCase().trim())
+        .filter((a) => /^[A-Z0-9]{10}$/.test(a))
+        .slice(0, 10)
+    : [];
+
   const weights: Weights = {
     ...DEFAULT_WEIGHTS,
     ...(typeof body.weights === "object" && body.weights !== null
@@ -299,17 +311,50 @@ export async function POST(request: Request) {
       let tokensLeft: number | null = null;
 
       try {
+        // Seed ASINs decide where to look. "More things like this" is a
+        // sharper instruction than a category name, and it sidesteps the
+        // guessed ids entirely: the category comes off a real product.
+        let categories = FALLBACK_CATEGORIES;
+
+        if (seedAsins.length > 0) {
+          send(controller, {
+            type: "progress",
+            index: 0,
+            of: 1,
+            category: `Reading categories from ${seedAsins.length} seed ASIN${seedAsins.length === 1 ? "" : "s"}`,
+          });
+
+          const derived = await categoriesForAsins(seedAsins, KEEPA_DOMAIN.UK);
+          tokensLeft = derived.tokensLeft ?? tokensLeft;
+
+          if (derived.categories.length === 0) {
+            send(controller, {
+              type: "error",
+              error: `Keepa had no record of ${seedAsins.join(", ")} on Amazon UK, so there is no category to sweep. Check the ASINs are UK listings.`,
+            });
+            return;
+          }
+
+          categories = derived.categories.map((c) => ({ id: c.id, label: c.name }));
+          send(controller, {
+            type: "seeded",
+            categories: derived.categories,
+            missing: derived.missing,
+          });
+        }
+
         send(controller, {
           type: "start",
-          categories: SWEEP_CATEGORIES.length,
+          categories: categories.length,
           filters,
+          seeded: seedAsins.length > 0,
         });
 
-        for (const [index, category] of SWEEP_CATEGORIES.entries()) {
+        for (const [index, category] of categories.entries()) {
           if (tokensLeft !== null && tokensLeft < TOKEN_FLOOR) {
             send(controller, {
               type: "halted",
-              reason: `Stopped after ${index} of ${SWEEP_CATEGORIES.length} categories: ${tokensLeft} Keepa tokens left, which is below the ${TOKEN_FLOOR} floor. Results so far are below. Keepa refills over time, so try the rest later.`,
+              reason: `Stopped after ${index} of ${categories.length} categories: ${tokensLeft} Keepa tokens left, which is below the ${TOKEN_FLOOR} floor. Results so far are below. Keepa refills over time, so try the rest later.`,
             });
             break;
           }
@@ -317,7 +362,7 @@ export async function POST(request: Request) {
           send(controller, {
             type: "progress",
             index: index + 1,
-            of: SWEEP_CATEGORIES.length,
+            of: categories.length,
             category: category.label,
           });
 
@@ -403,8 +448,8 @@ export async function POST(request: Request) {
         if (topForUs.length > 0 && (tokensLeft === null || tokensLeft >= TOKEN_FLOOR)) {
           send(controller, {
             type: "progress",
-            index: SWEEP_CATEGORIES.length,
-            of: SWEEP_CATEGORIES.length,
+            index: categories.length,
+            of: categories.length,
             category: `Checking the top ${topForUs.length} against the US`,
           });
 
@@ -479,6 +524,9 @@ export async function POST(request: Request) {
           const scorable = toScorable(c);
           c.killed = hardKill(scorable);
           c.score = scoreCandidate(scorable, weights);
+          const decided = autoVerdict(c.score, c.killed);
+          c.verdict = decided.verdict;
+          c.because = decided.because;
         }
 
         // Killed products sink but are not deleted: seeing why something died
@@ -488,9 +536,50 @@ export async function POST(request: Request) {
           return (b.score?.total ?? 0) - (a.score?.total ?? 0);
         });
 
+        // Persist before returning. A sweep costs tokens, so losing the
+        // results to a closed tab means paying for them twice, and the plan's
+        // own rule is that dead products stay on record with their reason so
+        // they stop being re-found.
+        let saved = 0;
+        let saveError: string | null = null;
+        try {
+          const result = await saveScoutCandidates(
+            all.map((c) => ({
+              asin: c.asin,
+              title: c.title ?? "",
+              brand: c.brand ?? "",
+              category: c.category,
+              price: c.price,
+              rating: c.rating,
+              review_count: c.reviewCount,
+              unhappy_buyers: c.unhappyBuyers,
+              monthly_sold: c.monthlySold,
+              sellers: c.sellers,
+              weight_grams: c.packageWeightG,
+              max_landed_cost: c.maxLandedCost,
+              score: c.score?.total ?? null,
+              coverage: c.score?.coverage ?? null,
+              strengths: c.score?.strengths.join(" · ") ?? "",
+              listing_weaknesses: c.listingWeaknesses.join(" · "),
+              killed_reason: c.killed,
+              us_growing: c.us?.growing ?? null,
+              us_monthly_sold: c.us?.monthlySold ?? null,
+              auto_verdict: c.verdict,
+              auto_because: c.because,
+            })),
+          );
+          saved = result.saved;
+        } catch (error) {
+          // Reported, never swallowed. A save that silently fails looks
+          // identical to one that worked.
+          saveError = error instanceof Error ? error.message : "save failed";
+        }
+
         send(controller, {
           type: "done",
           candidates: all,
+          saved,
+          saveError,
           tokensLeft,
           scanned: seen.size,
           clean: all.filter((c) => !c.killed).length,

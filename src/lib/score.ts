@@ -269,3 +269,61 @@ export function hardKill(c: Scorable): string | null {
     return `only £${c.maxLandedCost.toFixed(2)} to land a unit, nothing is makeable for that`;
   return null;
 }
+
+export type Verdict = "TEST" | "PARK" | "KILL";
+
+/**
+ * A verdict on every candidate, for free.
+ *
+ * The AI Judge costs money and about ninety seconds per product, so it cannot
+ * run on a hundred of them. This does not replace it: it triages, so the
+ * expensive judgement is spent on things that have already earned it. Paying
+ * Claude to read a product that fails on arithmetic is paying to confirm a no.
+ *
+ * Deliberately the same three words the Judge and the margin engine use, so
+ * one product carries one vocabulary. Where they disagree, that disagreement
+ * is information — this one has never read a review or looked at a photograph.
+ */
+export function autoVerdict(
+  score: ScoreResult,
+  killed: string | null,
+): { verdict: Verdict; because: string } {
+  if (killed) return { verdict: "KILL", because: killed };
+
+  // Low coverage means the score rests on very little. That is a reason to
+  // look, not to trust, so it parks rather than passing or failing.
+  if (score.coverage < 40) {
+    return {
+      verdict: "PARK",
+      because: `only ${score.coverage}% of the data was available, so the score of ${score.total} is not worth much either way`,
+    };
+  }
+
+  if (score.total >= 60) {
+    return {
+      verdict: "TEST",
+      because:
+        score.strengths.length > 0
+          ? `scored ${score.total} on ${score.strengths.join(", ")}`
+          : `scored ${score.total}`,
+    };
+  }
+
+  if (score.total >= 35) {
+    return {
+      verdict: "PARK",
+      because:
+        score.weaknesses.length > 0
+          ? `scored ${score.total}, held back by ${score.weaknesses.join(", ")}`
+          : `scored ${score.total}, nothing stands out`,
+    };
+  }
+
+  return {
+    verdict: "KILL",
+    because:
+      score.weaknesses.length > 0
+        ? `scored ${score.total}: ${score.weaknesses.join(", ")}`
+        : `scored ${score.total}, too weak on every measure`,
+  };
+}

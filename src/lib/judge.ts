@@ -476,3 +476,94 @@ export function parseProductInput(
 
   return errors.length > 0 ? { ok: false, errors } : { ok: true, value };
 }
+
+/**
+ * Triage: the cheap first pass.
+ *
+ * The full Judgement schema is where the money goes. Output tokens cost five
+ * times input, and a rich schema plus high effort produced about 4,700 of them
+ * per product at roughly 11p a time. That is the right price for a product you
+ * are seriously considering and the wrong price for the ninety you are not.
+ *
+ * This returns a verdict and a sentence. It is deliberately not a smaller
+ * version of the Judge: it answers one question — is this worth eleven pence
+ * of Opus — and nothing else.
+ */
+export const TriageSchema = z.object({
+  verdict: z.enum(["TEST", "PARK", "KILL"]),
+  /** One sentence. The schema caps it so the model cannot spend tokens here. */
+  reason: z.string().max(240),
+  /** 0-10. How beatable the incumbent's marketing and branding look. */
+  improvability: z.number().min(0).max(10),
+  /** The single biggest thing that would kill this, in a few words. */
+  mainRisk: z.string().max(120),
+});
+
+export type Triage = z.infer<typeof TriageSchema>;
+
+/**
+ * Deliberately short, and it stays byte-identical across every call in a
+ * sweep so the prompt cache holds. Anything that varies per product goes in
+ * the user turn, never here — a single changed character in this string
+ * invalidates the cache for the whole run.
+ */
+export const TRIAGE_SYSTEM_PROMPT = `You are triaging candidate products for a UK first-time Amazon FBA seller with about £3,000 of capital. You are not writing an analysis. You are deciding whether a product deserves a full, expensive review.
+
+The thesis: the opening is a product with proven demand and poor execution. High review counts are good — they prove people already spend money here. A mediocre rating alongside them is the gap. A neglected listing, a random-string brand name, few images, no bullet points: those are jobs that can be done better, and they matter more than the product being novel.
+
+Weight marketing and branding improvability at 60%, the product itself at 40%.
+
+The two mistakes here are not equally costly, and this should change how you answer. A product you wrongly KILL is never looked at again. A product you wrongly pass costs about eleven pence of deeper review and gets caught there. So when the evidence is thin or the case is arguable, pass it up. Being wrong upward is cheap; being wrong downward is permanent.
+
+Verdicts:
+- KILL: only for something structural you can point at in the data. Over 3kg, so freight eats the margin. No usable gap between the shelf price and what a unit could cost to land. A category needing certification a beginner cannot get. An incumbent already executing well on every visible measure. If you are reaching for a reason, it is not a KILL.
+- PARK: plausible but unremarkable, or too little data to judge. This is the correct home for everything uncertain, and it is fine for most products to land here.
+- TEST: proven demand, a visible execution gap, and numbers that leave room.
+
+Answer in the given schema and nothing else — no preamble, no caveats, no restating the input.`;
+
+/**
+ * The per-product half of the prompt. Kept compact on purpose: it is billed at
+ * full input rate on every call, unlike the cached system prompt above.
+ */
+export function buildTriagePrompt(c: {
+  title: string | null;
+  brand: string | null;
+  category: string;
+  price: number | null;
+  rating: number | null;
+  reviewCount: number | null;
+  monthlySold: number | null;
+  packageWeightG: number | null;
+  maxLandedCost: number | null;
+  listingWeaknesses: string[];
+  usGrowing: boolean | null;
+}): string {
+  const line = (label: string, value: unknown) =>
+    value === null || value === undefined || value === "" ? null : `${label}: ${value}`;
+
+  return [
+    line("Product", c.title),
+    line("Brand", c.brand),
+    line("Category", c.category),
+    line("Price", c.price === null ? null : `£${c.price.toFixed(2)}`),
+    line("Rating", c.rating),
+    line("Reviews", c.reviewCount),
+    line("Sold per month", c.monthlySold),
+    line("Packed weight", c.packageWeightG === null ? null : `${c.packageWeightG}g`),
+    line(
+      "Most it could cost to land and still clear 15% net",
+      c.maxLandedCost === null ? null : `£${c.maxLandedCost.toFixed(2)}`,
+    ),
+    line(
+      "Weaknesses in their listing",
+      c.listingWeaknesses.length > 0 ? c.listingWeaknesses.join("; ") : "none spotted",
+    ),
+    line(
+      "Amazon US",
+      c.usGrowing === null ? null : c.usGrowing ? "growing" : "flat or falling",
+    ),
+  ]
+    .filter(Boolean)
+    .join("\n");
+}

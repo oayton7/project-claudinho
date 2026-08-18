@@ -371,3 +371,80 @@ export async function findProducts(
     tokensLeft: typeof raw.tokensLeft === "number" ? raw.tokensLeft : null,
   };
 }
+
+/**
+ * Read the real category ids off products you already know.
+ *
+ * The sweep's hardcoded category ids were written from memory and match
+ * nothing, which cost three rounds of debugging. This removes the guess: give
+ * it an ASIN of a product in the right neighbourhood and it returns the
+ * category Amazon has actually filed that product under.
+ *
+ * The ids it returns exist by definition, because a real product is sitting in
+ * one. That is the property no amount of careful remembering can offer.
+ *
+ * It also turns the sweep into something better aimed. "Find me more things
+ * like this" is a sharper instruction than "search Home & Kitchen", and it is
+ * the instruction Oscar can actually give, because he knows products he likes
+ * even when he does not know Keepa's numbering.
+ */
+export async function categoriesForAsins(
+  asins: string[],
+  domain: KeepaDomain,
+): Promise<{
+  categories: { id: number; name: string; fromAsin: string }[];
+  missing: string[];
+  tokensLeft: number | null;
+}> {
+  const key = getKey();
+  checkRate();
+
+  const clean = asins
+    .map((a) => a.toUpperCase().trim())
+    .filter((a) => /^[A-Z0-9]{10}$/.test(a));
+
+  if (clean.length === 0) {
+    return { categories: [], missing: asins, tokensLeft: null };
+  }
+
+  const response = await fetch(
+    `https://api.keepa.com/product?key=${key}&domain=${domain}&asin=${clean.join(",")}&stats=0&history=0`,
+    { signal: AbortSignal.timeout(45_000) },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Keepa returned ${response.status} looking up categories. ${await response
+        .text()
+        .catch(() => "")}`.trim(),
+    );
+  }
+
+  const raw = (await response.json()) as Record<string, unknown>;
+  const products = (raw.products ?? []) as Record<string, unknown>[];
+
+  const found = new Map<number, { id: number; name: string; fromAsin: string }>();
+  const seenAsins = new Set<string>();
+
+  for (const product of products) {
+    const asin = typeof product.asin === "string" ? product.asin : "";
+    if (asin) seenAsins.add(asin);
+
+    const root = product.rootCategory;
+    if (typeof root !== "number" || root <= 0) continue;
+    if (found.has(root)) continue;
+
+    const tree = (product.categoryTree ?? []) as { catId: number; name: string }[];
+    const name = Array.isArray(tree)
+      ? (tree.find((t) => t.catId === root)?.name ?? tree[0]?.name ?? `category ${root}`)
+      : `category ${root}`;
+
+    found.set(root, { id: root, name, fromAsin: asin });
+  }
+
+  return {
+    categories: [...found.values()],
+    missing: clean.filter((a) => !seenAsins.has(a)),
+    tokensLeft: typeof raw.tokensLeft === "number" ? raw.tokensLeft : null,
+  };
+}

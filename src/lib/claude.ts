@@ -88,3 +88,77 @@ export async function guarded<T>(fn: (client: Anthropic) => Promise<T>): Promise
   checkRate();
   return fn(client);
 }
+
+/**
+ * The triage model.
+ *
+ * Judging with Opus costs about 11p and ninety seconds per product, which is
+ * fine for five products and impossible for a hundred. This is the cheap first
+ * pass: same rubric, a verdict and one line instead of a full analysis.
+ *
+ * Sonnet rather than Haiku, and the reason is not the headline price. Haiku is
+ * cheaper per token but its minimum cacheable prompt is 4,096 tokens, and the
+ * rubric is about 1,800 — so the cache silently never engages and every call
+ * pays full price for it. Sonnet caches from 1,024. That closes the gap to
+ * roughly 0.05p per product, which is not worth the drop in judgement.
+ */
+export const TRIAGE_MODEL = "claude-sonnet-5";
+
+/**
+ * Introductory Sonnet 5 pricing, which runs until 31 August 2026. After that
+ * it becomes $3 / $15, so triage gets about 50% dearer and is still trivial
+ * next to Opus. Update these two numbers then.
+ */
+const TRIAGE_PRICE_PER_MTOK = { input: 2, output: 10 };
+
+/**
+ * Triage is roughly fifty times cheaper per call than a full judgement, so it
+ * gets its own, much higher ceiling. The point of the guard is to stop a bug
+ * emptying the balance, and a bug here does far less damage per call.
+ */
+const TRIAGE_LIMIT_PER_HOUR = 400;
+const triageCalls: number[] = [];
+
+function checkTriageRate() {
+  const hourAgo = Date.now() - 60 * 60 * 1000;
+  while (triageCalls.length > 0 && triageCalls[0] < hourAgo) triageCalls.shift();
+  if (triageCalls.length >= TRIAGE_LIMIT_PER_HOUR) {
+    throw new RateLimited(
+      `Hit the triage guard of ${TRIAGE_LIMIT_PER_HOUR} calls per hour. At roughly 0.2p each that is about 80p of spend, so this is a bug guard rather than a budget. Wait, or raise it in src/lib/claude.ts.`,
+    );
+  }
+  triageCalls.push(Date.now());
+}
+
+export function priceTriage(usage: {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+}): Usage {
+  const cacheRead = usage.cache_read_input_tokens ?? 0;
+  const cacheWrite = usage.cache_creation_input_tokens ?? 0;
+
+  // Cached reads bill at a tenth of the input rate; the first write costs a
+  // premium of a quarter. Two calls and the cache has already paid for itself.
+  const costUsd =
+    (usage.input_tokens / 1_000_000) * TRIAGE_PRICE_PER_MTOK.input +
+    (cacheRead / 1_000_000) * TRIAGE_PRICE_PER_MTOK.input * 0.1 +
+    (cacheWrite / 1_000_000) * TRIAGE_PRICE_PER_MTOK.input * 1.25 +
+    (usage.output_tokens / 1_000_000) * TRIAGE_PRICE_PER_MTOK.output;
+
+  return {
+    inputTokens: usage.input_tokens + cacheRead + cacheWrite,
+    outputTokens: usage.output_tokens,
+    costUsd: Math.round(costUsd * 100000) / 100000,
+    costPence: Math.round(costUsd * 0.79 * 100 * 100) / 100,
+  };
+}
+
+export async function guardedTriage<T>(
+  fn: (client: Anthropic) => Promise<T>,
+): Promise<T> {
+  const client = getClient();
+  checkTriageRate();
+  return fn(client);
+}
