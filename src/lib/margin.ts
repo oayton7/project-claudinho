@@ -68,6 +68,24 @@ export type MarginResult = {
   verdict: "TEST" | "PARK" | "KILL";
 };
 
+/**
+ * Ceiling on what a single first order may take of total capital.
+ *
+ * Raised from 25% to 40% on 11 Aug 2026, resolving a contradiction in the
+ * plan: section 5 set the cap at 25% while section 7 allocated £1,100 of
+ * £3,000 to the first bulk order, which is 37%. Both could not hold.
+ *
+ * 25% was also unworkable in practice. At a realistic landed cost it bought
+ * roughly 180 units, below the minimum order quantity most suppliers will
+ * accept, so it killed products on MOQ rather than on merit.
+ *
+ * 40% of £3,000 is £1,200: enough for a 300-unit order, and it still leaves
+ * a real second attempt plus the launch ad budget. The cap exists to
+ * guarantee a second attempt, not to minimise spend — the plan assumes the
+ * first product is probably wrong.
+ */
+export const CAPITAL_CAP_PCT = 40;
+
 export const DEFAULT_INPUT: MarginInput = {
   sellPrice: 24.99,
   referralFeePct: 15,
@@ -244,10 +262,10 @@ export function calculateMargin(input: MarginInput): MarginResult {
     {
       label: "First order (landed) as share of capital",
       actual: pct(orderPctOfCapital),
-      threshold: "≤ 25%",
-      pass: orderPctOfCapital <= 25,
+      threshold: `≤ ${CAPITAL_CAP_PCT}%`,
+      pass: orderPctOfCapital <= CAPITAL_CAP_PCT,
       hard: false,
-      note: "Measured on landed cost rather than supplier cost, which is the conservative reading. Cut the order quantity rather than the cap.",
+      note: "Measured on landed cost, not supplier cost, which is the conservative reading. The point of the cap is not to spend little — it is to guarantee you get a second attempt. Cut the order quantity rather than the cap.",
     },
   ];
 
