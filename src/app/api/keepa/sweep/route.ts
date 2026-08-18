@@ -331,7 +331,9 @@ export async function POST(request: Request) {
                 type: "error",
                 error: `Aborted on the first category, so nothing else was tried. ${message}`,
               });
-              controller.close();
+              // Return, do not close: the finally block owns closing the
+              // controller. Closing twice throws, and that throw kills the
+              // response before the browser has read any of it.
               return;
             }
             send(controller, {
