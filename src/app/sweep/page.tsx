@@ -1,7 +1,22 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { DEFAULT_WEIGHTS, type Weights } from "@/lib/score";
+
+const WEIGHT_LABELS: Record<string, string> = {
+  unhappyBuyers: "Unhappy buyers",
+  listingWeakness: "Listing weakness",
+  marginHeadroom: "Margin headroom",
+  velocity: "Sales velocity",
+  priceBand: "Price in band",
+  weight: "Light to ship",
+  ratingRoom: "Room to improve",
+  sellers: "Few competitors",
+  usGrowing: "Growing in the US",
+};
+
+const STORAGE_KEY = "claudinho-sweep-weights";
 
 type Candidate = {
   asin: string;
@@ -29,6 +44,20 @@ type Candidate = {
     growing: boolean | null;
   } | null;
   flags: string[];
+  killed: string | null;
+  score: {
+    total: number;
+    coverage: number;
+    strengths: string[];
+    weaknesses: string[];
+    criteria: {
+      key: string;
+      label: string;
+      score: number | null;
+      weight: number;
+      explain: string;
+    }[];
+  } | null;
 };
 
 export default function SweepPage() {
@@ -45,7 +74,29 @@ export default function SweepPage() {
   const [running, setRunning] = useState(false);
   const [onlyClean, setOnlyClean] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
+  const [weights, setWeights] = useState<Weights>(DEFAULT_WEIGHTS);
+  const [showWeights, setShowWeights] = useState(false);
   const logEnd = useRef<HTMLDivElement>(null);
+
+  // Tuning these is the point, so they should survive a refresh.
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        setWeights({ ...DEFAULT_WEIGHTS, ...JSON.parse(saved) });
+      } catch {
+        // A corrupted value is not worth failing over; the defaults are fine.
+      }
+    }
+  }, []);
+
+  function setWeight(key: string, value: number) {
+    setWeights((w) => {
+      const next = { ...w, [key]: value };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
 
   async function run() {
     setRunning(true);
@@ -59,7 +110,7 @@ export default function SweepPage() {
       const response = await fetch("/api/keepa/sweep", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ weights }),
       });
 
       if (!response.body) {
@@ -122,7 +173,7 @@ export default function SweepPage() {
 
   const shown = candidates
     ? onlyClean
-      ? candidates.filter((c) => c.flags.length === 0)
+      ? candidates.filter((c) => !c.killed)
       : candidates
     : null;
 
@@ -155,8 +206,14 @@ export default function SweepPage() {
           >
             {running ? "Sweeping…" : "Run the sweep"}
           </button>
+          <button
+            onClick={() => setShowWeights((v) => !v)}
+            className="text-xs text-zinc-600 underline dark:text-zinc-400"
+          >
+            {showWeights ? "Hide priorities" : "Adjust priorities"}
+          </button>
           <Link href="/scout" className="text-xs text-zinc-500 underline">
-            Prefer to set the filters yourself?
+            Filter by hand instead
           </Link>
           {tokensLeft !== null && (
             <span className="ml-auto font-mono text-xs text-zinc-500">
@@ -164,6 +221,47 @@ export default function SweepPage() {
             </span>
           )}
         </div>
+
+        {showWeights && (
+          <div className="mt-5 rounded border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+            <p className="text-sm font-medium text-black dark:text-zinc-100">
+              What matters, and how much
+            </p>
+            <p className="mt-1 max-w-2xl text-xs leading-5 text-zinc-500">
+              Nothing here excludes a product. A candidate that falls short on
+              one of these can still come top if it is strong on the rest, which
+              is the whole reason these are weights rather than filters. Set one
+              to zero to ignore it completely.
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {Object.keys(DEFAULT_WEIGHTS).map((key) => (
+                <label key={key} className="flex flex-col gap-1">
+                  <span className="flex items-baseline justify-between text-xs text-zinc-700 dark:text-zinc-300">
+                    {WEIGHT_LABELS[key] ?? key}
+                    <span className="font-mono text-zinc-500">{weights[key] ?? 0}</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={30}
+                    value={weights[key] ?? 0}
+                    onChange={(e) => setWeight(key, Number(e.target.value))}
+                    className="accent-black dark:accent-zinc-100"
+                  />
+                </label>
+              ))}
+            </div>
+            <button
+              onClick={() => {
+                setWeights(DEFAULT_WEIGHTS);
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_WEIGHTS));
+              }}
+              className="mt-4 text-xs text-zinc-500 underline"
+            >
+              Back to the defaults
+            </button>
+          </div>
+        )}
 
         {log.length > 0 && (
           <div className="mt-6 max-h-56 overflow-y-auto rounded border border-zinc-200 bg-white p-4 font-mono text-xs leading-6 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
@@ -191,7 +289,7 @@ export default function SweepPage() {
           <>
             <div className="mt-8 flex flex-wrap items-baseline justify-between gap-3">
               <h2 className="text-lg font-semibold text-black dark:text-zinc-100">
-                {summary.scanned} scanned, {summary.clean} with no concerns
+                {summary.scanned} scanned, {summary.clean} still standing
                 {summary.usGrowing > 0 && (
                   <span className="ml-2 text-sm font-normal text-emerald-700 dark:text-emerald-400">
                     {summary.usGrowing} growing in the US
@@ -204,14 +302,16 @@ export default function SweepPage() {
                   checked={onlyClean}
                   onChange={(e) => setOnlyClean(e.target.checked)}
                 />
-                Hide the ones with concerns
+                Hide the killed ones
               </label>
             </div>
 
             <p className="mt-2 max-w-3xl text-xs leading-5 text-zinc-500">
-              Ranked by concerns first, then by unhappy buyers. There is no
-              blended score on purpose: one number would hide which thing is
-              actually wrong. <strong className="font-medium">Max landed</strong>{" "}
+              Ranked by score, with anything hard-killed sunk to the bottom
+              rather than deleted. The score never stands alone: open
+              &quot;Read their listing&quot; for the full breakdown of what
+              earned it. Only three things kill outright, and they are the ones
+              no strength elsewhere rescues. <strong className="font-medium">Max landed</strong>{" "}
               is the most you could pay to get a unit into a warehouse and still
               clear 15% net, so it is the number to take to a supplier, and it is
               free to work out because it is arithmetic rather than a quote. The
@@ -222,14 +322,15 @@ export default function SweepPage() {
 
             {shown.length === 0 ? (
               <p className="mt-6 rounded border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700">
-                Nothing without concerns this time. Untick the box to see the
-                rest, or loosen the rules on the Scout page.
+                Everything found was hard-killed. Untick the box to see them
+                and why.
               </p>
             ) : (
               <div className="mt-4 overflow-x-auto rounded border border-zinc-200 dark:border-zinc-800">
                 <table className="w-full min-w-[980px] border-collapse text-sm">
                   <thead className="bg-zinc-100 text-left text-xs uppercase tracking-wide text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
                     <tr>
+                      <th className="px-3 py-2 text-right font-medium">Score</th>
                       <th className="px-3 py-2 font-medium">Product</th>
                       <th className="px-3 py-2 text-right font-medium">Price</th>
                       <th className="px-3 py-2 text-right font-medium">Max landed</th>
@@ -244,7 +345,20 @@ export default function SweepPage() {
                   </thead>
                   <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
                     {shown.map((c) => (
-                      <tr key={c.asin} className="align-top">
+                      <tr key={c.asin} className={`align-top ${c.killed ? "opacity-45" : ""}`}>
+                        <td className="px-3 py-2 text-right">
+                          <span className="block text-lg font-semibold tabular-nums text-black dark:text-zinc-100">
+                            {c.score?.total ?? "—"}
+                          </span>
+                          {c.score && c.score.coverage < 70 && (
+                            <span
+                              className="block text-[10px] text-amber-700 dark:text-amber-500"
+                              title="Keepa was missing some of the data, so this score rests on less than it should."
+                            >
+                              {c.score.coverage}% data
+                            </span>
+                          )}
+                        </td>
                         <td className="max-w-sm px-3 py-2">
                           <a
                             href={`https://www.amazon.co.uk/dp/${c.asin}`}
@@ -258,6 +372,16 @@ export default function SweepPage() {
                             {c.asin} · {c.category}
                             {c.brand ? ` · ${c.brand}` : ""}
                           </span>
+                          {c.killed && (
+                            <p className="mt-1 text-[11px] font-medium leading-4 text-red-700 dark:text-red-400">
+                              Killed: {c.killed}
+                            </p>
+                          )}
+                          {c.score && c.score.strengths.length > 0 && (
+                            <p className="mt-1 text-[11px] leading-4 text-zinc-600 dark:text-zinc-400">
+                              {c.score.strengths.join(" · ")}
+                            </p>
+                          )}
                           {c.flags.length > 0 && (
                             <ul className="mt-1 space-y-0.5">
                               {c.flags.map((f) => (
@@ -299,6 +423,29 @@ export default function SweepPage() {
                                     <li key={i}>{f}</li>
                                   ))}
                                 </ul>
+                              )}
+                              {c.score && (
+                                <table className="mt-2 w-full border-collapse">
+                                  <tbody>
+                                    {c.score.criteria
+                                      .filter((x) => x.weight > 0)
+                                      .map((x) => (
+                                        <tr key={x.key}>
+                                          <td className="py-0.5 pr-2 align-top text-zinc-500">
+                                            {x.label}
+                                          </td>
+                                          <td className="py-0.5 pr-2 text-right align-top font-mono tabular-nums">
+                                            {x.score === null
+                                              ? "n/a"
+                                              : Math.round(x.score * 100)}
+                                          </td>
+                                          <td className="py-0.5 align-top text-zinc-600 dark:text-zinc-400">
+                                            {x.explain}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                  </tbody>
+                                </table>
                               )}
                               <p className="mt-2">
                                 {c.description ?? "No description on the listing."}

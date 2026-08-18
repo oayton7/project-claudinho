@@ -6,6 +6,14 @@ import {
   findProducts,
 } from "@/lib/keepa";
 import { maxLandedCost } from "@/lib/margin";
+import {
+  DEFAULT_WEIGHTS,
+  hardKill,
+  scoreCandidate,
+  type ScoreResult,
+  type Scorable,
+  type Weights,
+} from "@/lib/score";
 
 /**
  * POST /api/keepa/sweep
@@ -74,6 +82,8 @@ type Candidate = {
   listingWeaknesses: string[];
   us: UsSignal | null;
   flags: string[];
+  score: ScoreResult | null;
+  killed: string | null;
 };
 
 type UsSignal = {
@@ -223,6 +233,25 @@ function buildCandidate(
     ),
     us: null,
     flags,
+    // Filled in after the US check, so the US signal can count towards it.
+    score: null,
+    killed: null,
+  };
+}
+
+function toScorable(c: Candidate): Scorable {
+  return {
+    price: c.price,
+    rating: c.rating,
+    reviewCount: c.reviewCount,
+    unhappyBuyers: c.unhappyBuyers,
+    monthlySold: c.monthlySold,
+    rankDrops90: c.rankDrops90,
+    sellers: c.sellers,
+    packageWeightG: c.packageWeightG,
+    maxLandedCost: c.maxLandedCost,
+    listingWeaknessCount: c.listingWeaknesses.length,
+    usGrowing: c.us?.growing ?? null,
   };
 }
 
@@ -239,16 +268,24 @@ export async function POST(request: Request) {
     return Number.isFinite(value) && value >= 0 ? value : fallback;
   };
 
+  // Deliberately few and deliberately wide.
+  //
+  // The first version sent eight filters and ANDed them, which cut the pool to
+  // nothing and threw away the near-misses worth looking at. Keepa's job is
+  // now only to keep the result set to a sane size; every finer judgement
+  // happens in scoreCandidate, for free, on what comes back.
   const filters = {
-    minPrice: num("minPrice", 12),
-    maxPrice: num("maxPrice", 35),
-    minRank: num("minRank", 3000),
-    maxRank: num("maxRank", 100000),
-    minReviewCount: num("minReviewCount", 200),
-    maxRating: num("maxRating", 4.3),
-    minSellerCount: num("minSellerCount", 1),
-    maxSellerCount: num("maxSellerCount", 15),
+    minPrice: num("minPrice", 8),
+    maxPrice: num("maxPrice", 60),
+    maxRank: num("maxRank", 200000),
     limit: PER_CATEGORY,
+  };
+
+  const weights: Weights = {
+    ...DEFAULT_WEIGHTS,
+    ...(typeof body.weights === "object" && body.weights !== null
+      ? (body.weights as Weights)
+      : {}),
   };
 
   const encoder = new TextEncoder();
@@ -345,12 +382,12 @@ export async function POST(request: Request) {
           }
         }
 
-        // Rank by the thesis. Clean candidates first, then by how many buyers
-        // the incumbent has already let down.
-        all.sort((a, b) => {
-          if (a.flags.length !== b.flags.length) return a.flags.length - b.flags.length;
-          return (b.unhappyBuyers ?? 0) - (a.unhappyBuyers ?? 0);
-        });
+        // Provisional ranking so the US check spends its budget on the most
+        // promising candidates. Scored again afterwards, once the US signal
+        // is known.
+        const provisional = (c: Candidate) =>
+          scoreCandidate(toScorable(c), weights).total;
+        all.sort((a, b) => provisional(b) - provisional(a));
 
         // ── The US cross-reference ──────────────────────────────────────
         //
@@ -437,12 +474,27 @@ export async function POST(request: Request) {
           }
         }
 
+        // Final scoring, now that the US signal is in.
+        for (const c of all) {
+          const scorable = toScorable(c);
+          c.killed = hardKill(scorable);
+          c.score = scoreCandidate(scorable, weights);
+        }
+
+        // Killed products sink but are not deleted: seeing why something died
+        // is worth more than a shorter list.
+        all.sort((a, b) => {
+          if (!a.killed !== !b.killed) return a.killed ? 1 : -1;
+          return (b.score?.total ?? 0) - (a.score?.total ?? 0);
+        });
+
         send(controller, {
           type: "done",
           candidates: all,
           tokensLeft,
           scanned: seen.size,
-          clean: all.filter((c) => c.flags.length === 0).length,
+          clean: all.filter((c) => !c.killed).length,
+          weights,
           usGrowing: all.filter((c) => c.us?.growing === true).length,
         });
       } catch (error) {

@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "verify": "node scripts/verify-margin.mts"
+    "verify": "node --experimental-strip-types scripts/verify-margin.mts && node --experimental-strip-types scripts/verify-score.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
