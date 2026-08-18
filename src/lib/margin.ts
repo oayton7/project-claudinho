@@ -348,3 +348,64 @@ export function parseMarginInput(
 
   return errors.length > 0 ? { ok: false, errors } : { ok: true, value };
 }
+
+/**
+ * The margin engine run backwards.
+ *
+ * At scout time you know the shelf price but not the supplier price, so
+ * `calculateMargin` cannot help: its most important input is the one thing you
+ * have not got. Solving for it instead turns that gap into the useful number.
+ *
+ * Given a sell price and the fees, this returns the most you can pay to get one
+ * unit into an Amazon warehouse and still clear your margin threshold. That is
+ * the figure to take to a supplier: not "what do you charge" but "I need to
+ * land these under £4.20, can you do it".
+ *
+ * Two constraints bind, and the tighter one wins:
+ *   1. the net margin floor, and
+ *   2. the hard rule that landed cost stays under 30% of the sell price.
+ *
+ * Returns landed cost, which includes irrecoverable import VAT. Freight, duty
+ * and prep still have to come out of it before you reach the FOB price a
+ * supplier quotes.
+ */
+export function maxLandedCost(
+  sellPrice: number,
+  opts: {
+    referralFeePct?: number;
+    fbaFee?: number;
+    fuelSurchargePct?: number;
+    storagePerUnit?: number;
+    returnsPct?: number;
+    adCostPerUnit?: number;
+    targetNetMarginPct?: number;
+  } = {},
+): { landed: number; bindingConstraint: "margin" | "landed cost cap" } {
+  const {
+    referralFeePct = DEFAULT_INPUT.referralFeePct,
+    fbaFee = DEFAULT_INPUT.fbaFee,
+    fuelSurchargePct = DEFAULT_INPUT.fuelSurchargePct,
+    storagePerUnit = DEFAULT_INPUT.storagePerUnit,
+    returnsPct = DEFAULT_INPUT.returnsPct,
+    adCostPerUnit = DEFAULT_INPUT.adCostPerUnit,
+    targetNetMarginPct = 15,
+  } = opts;
+
+  const fromMargin =
+    sellPrice -
+    sellPrice * (referralFeePct / 100) -
+    fbaFee -
+    fbaFee * (fuelSurchargePct / 100) -
+    storagePerUnit -
+    sellPrice * (returnsPct / 100) -
+    adCostPerUnit -
+    sellPrice * (targetNetMarginPct / 100);
+
+  // The 30% rule is a hard check in calculateMargin, so a product that passes
+  // on margin alone can still fail here. Report whichever bites first.
+  const fromCap = sellPrice * 0.3;
+
+  return fromMargin <= fromCap
+    ? { landed: round(Math.max(0, fromMargin)), bindingConstraint: "margin" }
+    : { landed: round(Math.max(0, fromCap)), bindingConstraint: "landed cost cap" };
+}

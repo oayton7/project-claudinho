@@ -1,0 +1,468 @@
+import {
+  KEEPA_DOMAIN,
+  KeepaTokensExhausted,
+  MissingKeepaKey,
+  fetchProductRaw,
+  findProducts,
+} from "@/lib/keepa";
+import { maxLandedCost } from "@/lib/margin";
+
+/**
+ * POST /api/keepa/sweep
+ *
+ * The Scout run without supervision. Rather than tuning filters by hand and
+ * pressing search a dozen times, this walks every category on one set of
+ * rules, pools the results and ranks them.
+ *
+ * Three things make it safe to leave running:
+ *
+ * 1. The first category doubles as a probe. If the Product Finder request
+ *    shape is wrong the whole sweep aborts there, spending one search rather
+ *    than twelve.
+ * 2. A token floor. Keepa refills continuously but a sweep can drain the
+ *    bucket, and running dry mid-way leaves you with partial results and no
+ *    ability to check anything. It stops while there is still budget left.
+ * 3. Progress streams as newline-delimited JSON, so a slow sweep shows what
+ *    it is doing instead of hanging.
+ */
+export const maxDuration = 300;
+
+/** Stop while there is still enough left to look up a few products by hand. */
+const TOKEN_FLOOR = 100;
+
+/** Per category. Ten categories at this rate is a manageable spend. */
+const PER_CATEGORY = 10;
+
+/**
+ * How many of the best UK candidates get looked up on Amazon US as well.
+ * Kept small because each one costs tokens on a second domain, and the answer
+ * only matters for products that already survived the UK filters.
+ */
+const US_CROSS_CHECK_LIMIT = 15;
+
+const SWEEP_CATEGORIES: { id: number; label: string }[] = [
+  { id: 11052591, label: "Home & Kitchen" },
+  { id: 60032031, label: "Garden & Outdoors" },
+  { id: 468294, label: "Sports & Outdoors" },
+  { id: 11052651, label: "Toys & Games" },
+  { id: 66280031, label: "Pet Supplies" },
+  { id: 3760911, label: "Office Products" },
+  { id: 11052721, label: "Baby" },
+  { id: 11052901, label: "Health & Personal Care" },
+  { id: 2844434031, label: "Beauty" },
+  { id: 60040031, label: "Handmade" },
+];
+
+type Candidate = {
+  asin: string;
+  category: string;
+  title: string | null;
+  brand: string | null;
+  price: number | null;
+  salesRank: number | null;
+  reviewCount: number | null;
+  rating: number | null;
+  sellers: number | null;
+  rankDrops90: number | null;
+  packageWeightG: number | null;
+  unhappyBuyers: number | null;
+  maxLandedCost: number | null;
+  monthlySold: number | null;
+  description: string | null;
+  features: string[];
+  imageCount: number;
+  listingWeaknesses: string[];
+  us: UsSignal | null;
+  flags: string[];
+};
+
+type UsSignal = {
+  price: number | null;
+  monthlySold: number | null;
+  salesRank: number | null;
+  /** 30-day average rank better than the 90-day average means it is climbing. */
+  growing: boolean | null;
+};
+
+/**
+ * How lazy is the incumbent's listing?
+ *
+ * You cannot see a competitor's ad spend, but you can see their shop window,
+ * and a neglected one is countable. Each of these is a specific job you could
+ * do better for the price of an afternoon, which is the cheapest kind of
+ * advantage there is.
+ */
+function listingWeaknesses(
+  title: string | null,
+  brand: string | null,
+  features: string[],
+  description: string | null,
+  imageCount: number,
+): string[] {
+  const weak: string[] = [];
+
+  // Sellers who never intended to build a brand tend to register a random
+  // string. No vowels, or letters plus digits, is the usual shape.
+  if (brand) {
+    const bare = brand.replace(/[^A-Za-z0-9]/g, "");
+    if (bare.length >= 4 && !/[aeiou]/i.test(bare)) {
+      weak.push(`brand "${brand}" looks like a random string, not a brand`);
+    } else if (/^[A-Za-z]+\d+$/.test(bare) || /\d{2,}/.test(bare)) {
+      weak.push(`brand "${brand}" reads as a placeholder`);
+    }
+  } else {
+    weak.push("no brand set");
+  }
+
+  if (title) {
+    if (title.length > 150) weak.push(`title is ${title.length} chars, keyword stuffed`);
+    if (title.length < 30) weak.push(`title is only ${title.length} chars, barely tries`);
+    // A title that repeats the same word is written for a search engine
+    // rather than a person, and it reads that way on the page.
+    const words: string[] = title.toLowerCase().match(/[a-z]{4,}/g) ?? [];
+    const repeated = words.filter((w, i) => words.indexOf(w) !== i);
+    if (new Set(repeated).size >= 3) weak.push("title repeats the same keywords");
+  } else {
+    weak.push("no title");
+  }
+
+  if (features.length === 0) weak.push("no bullet points");
+  else if (features.length < 4) weak.push(`only ${features.length} bullet points`);
+
+  if (!description || description.length < 100) weak.push("thin or missing description");
+  if (imageCount > 0 && imageCount < 5) weak.push(`only ${imageCount} images`);
+  if (imageCount === 0) weak.push("no images on record");
+
+  return weak;
+}
+
+function buildCandidate(
+  product: Record<string, unknown>,
+  category: string,
+): Candidate {
+  const stats = (product.stats ?? {}) as Record<string, unknown>;
+  const current = stats.current as number[] | undefined;
+  const pence = (v: unknown) => (typeof v === "number" && v >= 0 ? v / 100 : null);
+  const int = (v: unknown) => (typeof v === "number" && v > 0 ? v : null);
+
+  const price = pence(stats.buyBoxPrice) ?? pence(current?.[1]);
+  const reviewCount = int(current?.[17]);
+  const rating = int(current?.[16]) === null ? null : (current![16] as number) / 10;
+  const weight = int(product.packageWeight);
+  const rankDrops90 = int(stats.salesRankDrops90);
+
+  const unhappyBuyers =
+    reviewCount !== null && rating !== null
+      ? Math.round(reviewCount * Math.max(0, 4.5 - rating))
+      : null;
+
+  // Amazon's own "bought in the past month" figure, which Keepa passes
+  // through. Far better than inferring sales from rank drops, though it is
+  // only populated on some listings.
+  const monthlySold = int(product.monthlySold);
+
+  const features = Array.isArray(product.features)
+    ? (product.features as string[]).filter((f) => typeof f === "string")
+    : [];
+  // Descriptions run to thousands of characters and there may be a hundred
+  // products in a sweep. Enough to judge the tone, not the whole thing.
+  const rawDescription =
+    typeof product.description === "string"
+      ? product.description.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim()
+      : null;
+  const description =
+    rawDescription && rawDescription.length > 400
+      ? rawDescription.slice(0, 400) + "…"
+      : rawDescription;
+  const imageCount =
+    typeof product.imagesCSV === "string" && product.imagesCSV.length > 0
+      ? product.imagesCSV.split(",").length
+      : 0;
+
+  // Free, because it is arithmetic. Solving for the supplier price you would
+  // need is the only margin question answerable before you have a quote.
+  const ceiling = price === null ? null : maxLandedCost(price).landed;
+
+  // Concerns rather than a composite score. A single blended number would
+  // hide which thing is actually wrong, and the rest of this app reports
+  // pass/fail checks for exactly that reason.
+  const flags: string[] = [];
+  if (price !== null && price < 12) flags.push("under the £12 floor");
+  if (weight !== null && weight > 1000) flags.push("over 1kg, freight will hurt");
+  if (rankDrops90 !== null && rankDrops90 < 30)
+    flags.push("barely sells, under 30 in 90 days");
+  if (ceiling !== null && ceiling < 3)
+    flags.push(`needs landing under £${ceiling.toFixed(2)}, very tight`);
+  if (rating !== null && rating >= 4.4)
+    flags.push("well liked already, less room to improve");
+
+  return {
+    asin: String(product.asin ?? ""),
+    category,
+    title: (product.title as string) ?? null,
+    brand: (product.brand as string) ?? null,
+    price,
+    salesRank: int(current?.[3]),
+    reviewCount,
+    rating,
+    sellers: int(stats.totalOfferCount),
+    rankDrops90,
+    packageWeightG: weight,
+    unhappyBuyers,
+    maxLandedCost: ceiling,
+    monthlySold,
+    description,
+    features,
+    imageCount,
+    listingWeaknesses: listingWeaknesses(
+      (product.title as string) ?? null,
+      (product.brand as string) ?? null,
+      features,
+      rawDescription,
+      imageCount,
+    ),
+    us: null,
+    flags,
+  };
+}
+
+export async function POST(request: Request) {
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    // A sweep with no body is valid: it means "use the defaults".
+  }
+
+  const num = (key: string, fallback: number) => {
+    const value = Number(body[key]);
+    return Number.isFinite(value) && value >= 0 ? value : fallback;
+  };
+
+  const filters = {
+    minPrice: num("minPrice", 12),
+    maxPrice: num("maxPrice", 35),
+    minRank: num("minRank", 3000),
+    maxRank: num("maxRank", 100000),
+    minReviewCount: num("minReviewCount", 200),
+    maxRating: num("maxRating", 4.3),
+    minSellerCount: num("minSellerCount", 1),
+    maxSellerCount: num("maxSellerCount", 15),
+    limit: PER_CATEGORY,
+  };
+
+  const encoder = new TextEncoder();
+  const send = (c: ReadableStreamDefaultController, event: unknown) =>
+    c.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const seen = new Set<string>();
+      const all: Candidate[] = [];
+      let tokensLeft: number | null = null;
+
+      try {
+        send(controller, {
+          type: "start",
+          categories: SWEEP_CATEGORIES.length,
+          filters,
+        });
+
+        for (const [index, category] of SWEEP_CATEGORIES.entries()) {
+          if (tokensLeft !== null && tokensLeft < TOKEN_FLOOR) {
+            send(controller, {
+              type: "halted",
+              reason: `Stopped after ${index} of ${SWEEP_CATEGORIES.length} categories: ${tokensLeft} Keepa tokens left, which is below the ${TOKEN_FLOOR} floor. Results so far are below. Keepa refills over time, so try the rest later.`,
+            });
+            break;
+          }
+
+          send(controller, {
+            type: "progress",
+            index: index + 1,
+            of: SWEEP_CATEGORIES.length,
+            category: category.label,
+          });
+
+          try {
+            const search = await findProducts(
+              { ...filters, categoryId: category.id },
+              KEEPA_DOMAIN.UK,
+            );
+            tokensLeft = search.tokensLeft ?? tokensLeft;
+
+            const fresh = search.asins.filter((a) => !seen.has(a));
+            fresh.forEach((a) => seen.add(a));
+
+            if (fresh.length === 0) {
+              send(controller, {
+                type: "category",
+                category: category.label,
+                found: 0,
+              });
+              continue;
+            }
+
+            const detail = await fetchProductRaw(fresh.join(","), KEEPA_DOMAIN.UK, {
+              history: false,
+              stats: 90,
+            });
+            tokensLeft = detail.tokensLeft ?? tokensLeft;
+
+            const products = ((detail.raw as Record<string, unknown>).products ??
+              []) as Record<string, unknown>[];
+            const candidates = products.map((p) => buildCandidate(p, category.label));
+            all.push(...candidates);
+
+            send(controller, {
+              type: "category",
+              category: category.label,
+              found: candidates.length,
+              tokensLeft,
+            });
+          } catch (error) {
+            // The first category is the probe. A failure there means the
+            // request shape is wrong, not that this one category is empty,
+            // so stop rather than burn the remaining searches.
+            const message =
+              error instanceof Error ? error.message : "Keepa request failed";
+            if (index === 0) {
+              send(controller, {
+                type: "error",
+                error: `Aborted on the first category, so nothing else was tried. ${message}`,
+              });
+              controller.close();
+              return;
+            }
+            send(controller, {
+              type: "category",
+              category: category.label,
+              found: 0,
+              error: message,
+            });
+          }
+        }
+
+        // Rank by the thesis. Clean candidates first, then by how many buyers
+        // the incumbent has already let down.
+        all.sort((a, b) => {
+          if (a.flags.length !== b.flags.length) return a.flags.length - b.flags.length;
+          return (b.unhappyBuyers ?? 0) - (a.unhappyBuyers ?? 0);
+        });
+
+        // ── The US cross-reference ──────────────────────────────────────
+        //
+        // A product already growing in the US and quiet here is the clearest
+        // signal there is: someone else has proved the demand, and the UK
+        // listing has not caught up yet.
+        //
+        // Only the top candidates get checked. Every ASIN costs tokens on the
+        // US domain too, and cross-checking a product that already failed on
+        // weight or price would be paying to confirm a no.
+        const topForUs = all.slice(0, US_CROSS_CHECK_LIMIT).filter((c) => c.asin);
+
+        if (topForUs.length > 0 && (tokensLeft === null || tokensLeft >= TOKEN_FLOOR)) {
+          send(controller, {
+            type: "progress",
+            index: SWEEP_CATEGORIES.length,
+            of: SWEEP_CATEGORIES.length,
+            category: `Checking the top ${topForUs.length} against the US`,
+          });
+
+          try {
+            const us = await fetchProductRaw(
+              topForUs.map((c) => c.asin).join(","),
+              KEEPA_DOMAIN.US,
+              { history: false, stats: 90 },
+            );
+            tokensLeft = us.tokensLeft ?? tokensLeft;
+
+            const usProducts = ((us.raw as Record<string, unknown>).products ??
+              []) as Record<string, unknown>[];
+
+            for (const usProduct of usProducts) {
+              const match = all.find((c) => c.asin === usProduct.asin);
+              if (!match) continue;
+
+              const stats = (usProduct.stats ?? {}) as Record<string, unknown>;
+              const current = stats.current as number[] | undefined;
+              const avg30 = stats.avg30 as number[] | undefined;
+              const avg90 = stats.avg90 as number[] | undefined;
+
+              const rank30 = avg30?.[3];
+              const rank90 = avg90?.[3];
+              // Sales rank is inverted: a smaller number is a better seller.
+              // So a 30-day average below the 90-day average means it has been
+              // climbing recently.
+              const growing =
+                typeof rank30 === "number" &&
+                typeof rank90 === "number" &&
+                rank30 > 0 &&
+                rank90 > 0
+                  ? rank30 < rank90
+                  : null;
+
+              match.us = {
+                price:
+                  typeof current?.[1] === "number" && current[1] >= 0
+                    ? current[1] / 100
+                    : null,
+                monthlySold:
+                  typeof usProduct.monthlySold === "number" && usProduct.monthlySold > 0
+                    ? usProduct.monthlySold
+                    : null,
+                salesRank:
+                  typeof current?.[3] === "number" && current[3] > 0 ? current[3] : null,
+                growing,
+              };
+            }
+
+            send(controller, {
+              type: "category",
+              category: `US cross-check`,
+              found: usProducts.length,
+              tokensLeft,
+            });
+          } catch (error) {
+            // A failed cross-check is not a failed sweep. The UK results are
+            // still worth having, so say what went wrong and carry on.
+            send(controller, {
+              type: "category",
+              category: "US cross-check",
+              found: 0,
+              error: error instanceof Error ? error.message : "US lookup failed",
+            });
+          }
+        }
+
+        send(controller, {
+          type: "done",
+          candidates: all,
+          tokensLeft,
+          scanned: seen.size,
+          clean: all.filter((c) => c.flags.length === 0).length,
+          usGrowing: all.filter((c) => c.us?.growing === true).length,
+        });
+      } catch (error) {
+        if (error instanceof MissingKeepaKey || error instanceof KeepaTokensExhausted) {
+          send(controller, { type: "error", error: error.message });
+        } else {
+          console.error("[keepa/sweep]", error);
+          send(controller, {
+            type: "error",
+            error: error instanceof Error ? error.message : "Sweep failed",
+          });
+        }
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
+}

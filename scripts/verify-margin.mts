@@ -9,7 +9,12 @@
  *   2. Import VAT on at 20%. The corrected model, and the one you should
  *      actually use — below £90k that VAT is real money you cannot reclaim.
  */
-import { calculateMargin, DEFAULT_INPUT, type MarginInput } from "../src/lib/margin.ts";
+import {
+  calculateMargin,
+  maxLandedCost,
+  DEFAULT_INPUT,
+  type MarginInput,
+} from "../src/lib/margin.ts";
 
 let failed = 0;
 
@@ -68,6 +73,41 @@ console.log(
 console.log("because the starting point was wrong, not because registering got cheaper.");
 console.log(
   `verdict: ${real.verdict}   cash tied up: £${real.cashTiedUp}   payback: ${real.daysToPayback} days`,
+);
+
+// --- The engine run backwards -------------------------------------------
+//
+// The scout solves for landed cost instead of margin, so it needs pinning to
+// the same worked example. At £24.99 on default fees the 30% cap bites before
+// the margin floor does, giving a ceiling of £7.50. The worked example's real
+// landed cost is £7.10, which sits just under it — consistent with the plan's
+// PARK verdict, where every hard check passes and only soft ones fail.
+console.log("\n--- Reverse: the most you can pay to land a unit ---");
+
+const ceiling = maxLandedCost(24.99);
+expect("max landed cost at £24.99", ceiling.landed, 7.5);
+expect(
+  "binding constraint is the 30% cap",
+  ceiling.bindingConstraint === "landed cost cap" ? 1 : 0,
+  1,
+);
+
+const workedExampleLanded = calculateMargin(DEFAULT_INPUT).landedUnitCost;
+expect(
+  "worked example under its ceiling",
+  workedExampleLanded <= ceiling.landed ? 1 : 0,
+  1,
+);
+console.log(
+  `       worked example lands at £${workedExampleLanded}, ceiling £${ceiling.landed}`,
+);
+
+// At a low enough price the margin floor bites first instead. £13 leaves so
+// little after the fixed fees that the fee stack, not the cap, sets the limit.
+expect(
+  "at £13 the margin floor binds",
+  maxLandedCost(13).bindingConstraint === "margin" ? 1 : 0,
+  1,
 );
 
 if (failed > 0) {
