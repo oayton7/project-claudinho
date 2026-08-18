@@ -237,3 +237,97 @@ export function describeShape(raw: unknown): unknown {
     },
   };
 }
+
+/**
+ * Product Finder — the actual Scout.
+ *
+ * Everything above looks up a product you already found. This searches for
+ * ones you have not, which is the whole point of Phase 6: "surfaces 20
+ * candidates you wouldn't have found by hand".
+ *
+ * The filters map directly onto the rubric. Rank range keeps you out of the
+ * saturated top ten and away from the dead tail; the review ceiling finds
+ * categories where the leaders are beatable; the price floor enforces the £12
+ * kill switch.
+ *
+ * ## Cost
+ *
+ * A Product Finder query costs materially more than a single product lookup —
+ * Keepa charges by result volume. The guard in checkRate() applies, but treat
+ * a search as expensive and prefer narrow filters over broad ones.
+ *
+ * ## Unverified
+ *
+ * The request shape below is from memory and Keepa's docs block automated
+ * access. If a search returns nothing, or something implausible, that is the
+ * first thing to suspect — not the filters. The route reports Keepa's own
+ * error text rather than swallowing it.
+ */
+export type FinderFilters = {
+  /** Keepa category id. Browse them on the Amazon category page URL. */
+  categoryId?: number;
+  minRank?: number;
+  maxRank?: number;
+  /** Pounds, converted to integer pence for Keepa. */
+  minPrice?: number;
+  maxPrice?: number;
+  /** The rubric wants beatable leaders, so this is a ceiling not a floor. */
+  maxReviewCount?: number;
+  minSellerCount?: number;
+  maxSellerCount?: number;
+  limit?: number;
+};
+
+export async function findProducts(
+  filters: FinderFilters,
+  domain: KeepaDomain,
+): Promise<{ asins: string[]; raw: unknown; tokensLeft: number | null }> {
+  const key = getKey();
+  checkRate();
+
+  // Keepa's selection object. Money is integer pence, same as everywhere else
+  // in its API.
+  const selection: Record<string, unknown> = {
+    productType: [0, 1], // physical products only
+    sort: [["current_SALES", "asc"]],
+    perPage: Math.min(filters.limit ?? 50, 100),
+    page: 0,
+  };
+
+  if (filters.categoryId) selection.rootCategory = filters.categoryId;
+  if (filters.minRank !== undefined) selection.current_SALES_gte = filters.minRank;
+  if (filters.maxRank !== undefined) selection.current_SALES_lte = filters.maxRank;
+  if (filters.minPrice !== undefined)
+    selection.current_NEW_gte = Math.round(filters.minPrice * 100);
+  if (filters.maxPrice !== undefined)
+    selection.current_NEW_lte = Math.round(filters.maxPrice * 100);
+  if (filters.maxReviewCount !== undefined)
+    selection.current_COUNT_REVIEWS_lte = filters.maxReviewCount;
+  if (filters.minSellerCount !== undefined)
+    selection.current_COUNT_NEW_gte = filters.minSellerCount;
+  if (filters.maxSellerCount !== undefined)
+    selection.current_COUNT_NEW_lte = filters.maxSellerCount;
+
+  const response = await fetch(
+    `https://api.keepa.com/query?key=${key}&domain=${domain}&selection=${encodeURIComponent(JSON.stringify(selection))}`,
+    { signal: AbortSignal.timeout(30_000) },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Keepa Product Finder returned ${response.status}. ${
+        response.status === 429
+          ? "Out of tokens — a search costs far more than a single lookup."
+          : await response.text().catch(() => "")
+      }`.trim(),
+    );
+  }
+
+  const raw = (await response.json()) as Record<string, unknown>;
+
+  return {
+    asins: Array.isArray(raw.asinList) ? (raw.asinList as string[]) : [],
+    raw,
+    tokensLeft: typeof raw.tokensLeft === "number" ? raw.tokensLeft : null,
+  };
+}
