@@ -53,9 +53,24 @@ export async function POST(request: Request) {
     );
   }
 
-  const candidates = body.candidates.slice(0, MAX_BATCH) as Parameters<
-    typeof buildTriagePrompt
-  >[0][];
+  // Normalise rather than trust the caller's shape. The sweep carries the US
+  // signal as a nested object; the prompt builder wants a flat field, and a
+  // mismatch would quietly drop the strongest signal there is rather than
+  // erroring.
+  type Incoming = Parameters<typeof buildTriagePrompt>[0] & {
+    asin?: string;
+    us?: { growing?: boolean | null } | null;
+  };
+
+  const candidates = (body.candidates as Incoming[])
+    .slice(0, MAX_BATCH)
+    .map((c) => ({
+      ...c,
+      usGrowing: c.usGrowing ?? c.us?.growing ?? null,
+      listingWeaknesses: Array.isArray(c.listingWeaknesses)
+        ? c.listingWeaknesses
+        : [],
+    }));
 
   const encoder = new TextEncoder();
   const send = (c: ReadableStreamDefaultController, event: unknown) =>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { DEFAULT_WEIGHTS, type Weights } from "@/lib/score";
 
@@ -45,6 +45,10 @@ type Candidate = {
   } | null;
   flags: string[];
   killed: string | null;
+  aiVerdict?: "TEST" | "PARK" | "KILL" | null;
+  aiReason?: string;
+  aiImprovability?: number;
+  aiRisk?: string;
   score: {
     total: number;
     coverage: number;
@@ -75,21 +79,110 @@ export default function SweepPage() {
   const [onlyClean, setOnlyClean] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [seeds, setSeeds] = useState("");
+  const [triaging, setTriaging] = useState(false);
+  const [triageCost, setTriageCost] = useState<number | null>(null);
+  const [triageProgress, setTriageProgress] = useState(0);
+
+  /**
+   * The second tier. The sweep's own verdict is arithmetic and free but blind:
+   * it knows the numbers fit the shape, not whether the product is any good.
+   * This spends about 0.2p each asking that question properly, and only on the
+   * ones the arithmetic did not already kill — paying to confirm a no is the
+   * one thing worth avoiding here.
+   */
+  async function triageAll() {
+    if (!candidates) return;
+    const worthAsking = candidates.filter((c) => !c.killed);
+    if (worthAsking.length === 0) return;
+
+    setTriaging(true);
+    setTriageProgress(0);
+    setError("");
+
+    try {
+      const response = await fetch("/api/triage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ candidates: worthAsking }),
+      });
+      if (!response.body) {
+        setError("No response from the server.");
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          let event: Record<string, unknown>;
+          try {
+            event = JSON.parse(line);
+          } catch {
+            continue;
+          }
+
+          if (event.type === "result") {
+            const t = event.triage as
+              | { verdict: "TEST" | "PARK" | "KILL"; reason: string; improvability: number; mainRisk: string }
+              | undefined;
+            setTriageProgress((n) => n + 1);
+            setCandidates((prev) =>
+              prev
+                ? prev.map((c) =>
+                    c.asin === event.asin
+                      ? {
+                          ...c,
+                          aiVerdict: t?.verdict ?? null,
+                          aiReason: t?.reason ?? (event.error as string) ?? "",
+                          aiImprovability: t?.improvability,
+                          aiRisk: t?.mainRisk,
+                        }
+                      : c,
+                  )
+                : prev,
+            );
+          } else if (event.type === "done") {
+            setTriageCost(event.totalPence as number);
+          } else if (event.type === "error") {
+            setError(String(event.error));
+          }
+        }
+      }
+    } catch {
+      setError("Lost the connection during triage.");
+    } finally {
+      setTriaging(false);
+    }
+  }
   const [weights, setWeights] = useState<Weights>(DEFAULT_WEIGHTS);
   const [showWeights, setShowWeights] = useState(false);
   const logEnd = useRef<HTMLDivElement>(null);
 
-  // Tuning these is the point, so they should survive a refresh.
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        setWeights({ ...DEFAULT_WEIGHTS, ...JSON.parse(saved) });
-      } catch {
-        // A corrupted value is not worth failing over; the defaults are fine.
-      }
+  /**
+   * Read on demand rather than on mount. localStorage does not exist while the
+   * page is rendered on the server, so loading it in an effect means the first
+   * paint shows defaults and then swaps — and React now flags that as a
+   * cascading render. Reading at the two moments the values are actually
+   * needed avoids both problems.
+   */
+  function savedWeights(): Weights {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      return saved ? { ...DEFAULT_WEIGHTS, ...JSON.parse(saved) } : DEFAULT_WEIGHTS;
+    } catch {
+      // A corrupted value is not worth failing over; the defaults are fine.
+      return DEFAULT_WEIGHTS;
     }
-  }, []);
+  }
 
   function setWeight(key: string, value: number) {
     setWeights((w) => {
@@ -112,7 +205,7 @@ export default function SweepPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          weights,
+          weights: savedWeights(),
           // Splitting on anything that is not alphanumeric means a pasted
           // Amazon URL works as well as a bare ASIN.
           seedAsins: seeds
@@ -247,7 +340,10 @@ export default function SweepPage() {
                 : "Run the sweep"}
           </button>
           <button
-            onClick={() => setShowWeights((v) => !v)}
+            onClick={() => {
+              if (!showWeights) setWeights(savedWeights());
+              setShowWeights((v) => !v);
+            }}
             className="text-xs text-zinc-600 underline dark:text-zinc-400"
           >
             {showWeights ? "Hide priorities" : "Adjust priorities"}
@@ -336,6 +432,22 @@ export default function SweepPage() {
                   </span>
                 )}
               </h2>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => void triageAll()}
+                  disabled={triaging}
+                  className="rounded border border-zinc-400 px-3 py-1.5 text-xs font-medium text-zinc-800 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-200"
+                >
+                  {triaging
+                    ? `Judging ${triageProgress}…`
+                    : `Judge the survivors (about ${(shown.filter((c) => !c.killed).length * 0.2).toFixed(1)}p)`}
+                </button>
+                {triageCost !== null && (
+                  <span className="font-mono text-xs text-zinc-500">
+                    cost {triageCost}p
+                  </span>
+                )}
+              </div>
               <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
                 <input
                   type="checkbox"
@@ -371,6 +483,7 @@ export default function SweepPage() {
                   <thead className="bg-zinc-100 text-left text-xs uppercase tracking-wide text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
                     <tr>
                       <th className="px-3 py-2 text-right font-medium">Score</th>
+                      <th className="px-3 py-2 font-medium">Verdict</th>
                       <th className="px-3 py-2 font-medium">Product</th>
                       <th className="px-3 py-2 text-right font-medium">Price</th>
                       <th className="px-3 py-2 text-right font-medium">Max landed</th>
@@ -399,6 +512,32 @@ export default function SweepPage() {
                             </span>
                           )}
                         </td>
+                        <td className="px-3 py-2">
+                          {c.aiVerdict ? (
+                            <>
+                              <span
+                                className={`block text-sm font-semibold ${
+                                  c.aiVerdict === "TEST"
+                                    ? "text-emerald-700 dark:text-emerald-400"
+                                    : c.aiVerdict === "PARK"
+                                      ? "text-amber-700 dark:text-amber-500"
+                                      : "text-red-700 dark:text-red-400"
+                                }`}
+                              >
+                                {c.aiVerdict}
+                              </span>
+                              {c.aiImprovability !== undefined && (
+                                <span className="block text-[10px] text-zinc-500">
+                                  improvability {c.aiImprovability}/10
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-xs text-zinc-400">
+                              {c.killed ? "killed" : "—"}
+                            </span>
+                          )}
+                        </td>
                         <td className="max-w-sm px-3 py-2">
                           <a
                             href={`https://www.amazon.co.uk/dp/${c.asin}`}
@@ -415,6 +554,12 @@ export default function SweepPage() {
                           {c.killed && (
                             <p className="mt-1 text-[11px] font-medium leading-4 text-red-700 dark:text-red-400">
                               Killed: {c.killed}
+                            </p>
+                          )}
+                          {c.aiReason && (
+                            <p className="mt-1 text-[11px] leading-4 text-zinc-700 dark:text-zinc-300">
+                              {c.aiReason}
+                              {c.aiRisk ? ` Main risk: ${c.aiRisk}` : ""}
                             </p>
                           )}
                           {c.score && c.score.strengths.length > 0 && (
@@ -562,10 +707,13 @@ export default function SweepPage() {
             )}
 
             <p className="mt-4 max-w-3xl text-xs leading-5 text-zinc-500">
-              The sweep narrows, it does not decide. It has no idea whether a
-              product is any good, only whether its numbers fit the shape you are
-              looking for. Judging costs money per press, so read the list first
-              and judge the few worth it.
+              Three tiers, cheapest first. The score is arithmetic: free, and
+              blind to whether the product is any good. Pressing
+              <strong className="font-medium"> Judge the survivors</strong>{" "}
+              spends about 0.2p each asking that question properly, skipping
+              anything already hard-killed, because paying to confirm a no is
+              the one thing worth avoiding. Anything that comes back TEST is
+              worth the full 11p judgement on the Judge page.
               <br />
               <br />
               One thing it cannot fetch: the words inside the reviews. Keepa
