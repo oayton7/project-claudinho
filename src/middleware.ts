@@ -24,8 +24,16 @@ export async function middleware(request: NextRequest) {
 
   // API calls get an honest 401 rather than a redirect to an HTML page, which
   // would otherwise arrive at the client as an unparseable JSON error.
+  //
+  // Except when a person typed the URL into a browser. A raw 401 blob is a
+  // dead end that reads as "the link is broken", so a navigation gets sent to
+  // the login page like any other page would be. Only real fetch calls, which
+  // do not ask for HTML, still get the 401 their code can handle.
   if (request.nextUrl.pathname.startsWith("/api/")) {
-    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    const wantsHtml = request.headers.get("accept")?.includes("text/html");
+    if (!wantsHtml) {
+      return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    }
   }
 
   const login = new URL("/login", request.url);

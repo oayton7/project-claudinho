@@ -86,6 +86,12 @@ export default function Home() {
             Products →
           </Link>
           <Link
+            href="/triage"
+            className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
+          >
+            Triage check →
+          </Link>
+          <Link
             href="/keepa"
             className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
           >
