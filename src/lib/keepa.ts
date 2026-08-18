@@ -263,6 +263,12 @@ export function describeShape(raw: unknown): unknown {
  * first thing to suspect — not the filters. The route reports Keepa's own
  * error text rather than swallowing it.
  */
+/**
+ * Keepa's floor for Product Finder page size. Asking for fewer is a 400, not
+ * a smaller result set.
+ */
+const KEEPA_MIN_PER_PAGE = 50;
+
 export type FinderFilters = {
   /** Keepa category id. Browse them on the Amazon category page URL. */
   categoryId?: number;
@@ -288,6 +294,11 @@ export type FinderFilters = {
   minRating?: number;
   minSellerCount?: number;
   maxSellerCount?: number;
+  /**
+   * How many ASINs to keep from the page Keepa returns. Not sent to Keepa: it
+   * caps how many products get a detail fetch, which is where the token cost
+   * actually sits.
+   */
   limit?: number;
 };
 
@@ -300,10 +311,14 @@ export async function findProducts(
 
   // Keepa's selection object. Money is integer pence, same as everywhere else
   // in its API.
+  // Keepa rejects a small page size outright: "combination of perPage and page
+  // exeeds limit or is too small". How many results the API will hand back in
+  // one page and how many we want to pay to fetch details for are separate
+  // questions, so ask for a page Keepa accepts and narrow it here afterwards.
   const selection: Record<string, unknown> = {
     productType: [0, 1], // physical products only
     sort: [["current_SALES", "asc"]],
-    perPage: Math.min(filters.limit ?? 50, 100),
+    perPage: KEEPA_MIN_PER_PAGE,
     page: 0,
   };
 
@@ -345,8 +360,13 @@ export async function findProducts(
 
   const raw = (await response.json()) as Record<string, unknown>;
 
+  const asins = Array.isArray(raw.asinList) ? (raw.asinList as string[]) : [];
+
   return {
-    asins: Array.isArray(raw.asinList) ? (raw.asinList as string[]) : [],
+    // The search is charged as one query however many rows come back. The
+    // per-product cost lands on the detail fetch, so trimming here is what
+    // actually controls the spend.
+    asins: filters.limit ? asins.slice(0, filters.limit) : asins,
     raw,
     tokensLeft: typeof raw.tokensLeft === "number" ? raw.tokensLeft : null,
   };
