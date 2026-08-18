@@ -271,8 +271,21 @@ export type FinderFilters = {
   /** Pounds, converted to integer pence for Keepa. */
   minPrice?: number;
   maxPrice?: number;
-  /** The rubric wants beatable leaders, so this is a ceiling not a floor. */
+  /**
+   * Review count proves demand, it does not measure defensibility. A high
+   * count means people have been buying this for years, which is the thing
+   * you cannot manufacture with £3,000. So the floor matters more than the
+   * ceiling, and the ceiling is optional.
+   */
+  minReviewCount?: number;
   maxReviewCount?: number;
+  /**
+   * Rating is where the opening actually shows up. Keepa scales this 0-50,
+   * so 4.3 stars is 43. A high review count paired with a mediocre rating is
+   * the thesis in two numbers: proven demand, failed execution.
+   */
+  maxRating?: number;
+  minRating?: number;
   minSellerCount?: number;
   maxSellerCount?: number;
   limit?: number;
@@ -301,8 +314,15 @@ export async function findProducts(
     selection.current_NEW_gte = Math.round(filters.minPrice * 100);
   if (filters.maxPrice !== undefined)
     selection.current_NEW_lte = Math.round(filters.maxPrice * 100);
+  if (filters.minReviewCount !== undefined)
+    selection.current_COUNT_REVIEWS_gte = filters.minReviewCount;
   if (filters.maxReviewCount !== undefined)
     selection.current_COUNT_REVIEWS_lte = filters.maxReviewCount;
+  // Keepa holds ratings as tenths of a star in an integer field.
+  if (filters.maxRating !== undefined)
+    selection.current_RATING_lte = Math.round(filters.maxRating * 10);
+  if (filters.minRating !== undefined)
+    selection.current_RATING_gte = Math.round(filters.minRating * 10);
   if (filters.minSellerCount !== undefined)
     selection.current_COUNT_NEW_gte = filters.minSellerCount;
   if (filters.maxSellerCount !== undefined)

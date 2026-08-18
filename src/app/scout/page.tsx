@@ -35,6 +35,7 @@ type Candidate = {
   rankDrops90: number | null;
   outOfStock90: number | null;
   packageWeightG: number | null;
+  unhappyBuyers: number | null;
 };
 
 const DEFAULTS = {
@@ -43,7 +44,8 @@ const DEFAULTS = {
   maxPrice: 35,
   minRank: 3000,
   maxRank: 100000,
-  maxReviewCount: 500,
+  minReviewCount: 200,
+  maxRating: 4.3,
   minSellerCount: 1,
   maxSellerCount: 15,
   limit: 25,
@@ -60,7 +62,7 @@ export default function ScoutPage() {
   const [tokensLeft, setTokensLeft] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [sortBy, setSortBy] = useState<keyof Candidate>("rankDrops90");
+  const [sortBy, setSortBy] = useState<keyof Candidate>("unhappyBuyers");
 
   function set(key: string, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -109,11 +111,12 @@ export default function ScoutPage() {
       })
     : null;
 
-  const field = (key: string, label: string, hint?: string) => (
+  const field = (key: string, label: string, hint?: string, step = "1") => (
     <label className="flex flex-col gap-1">
       <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">{label}</span>
       <input
         type="number"
+        step={step}
         value={form[key] ?? ""}
         onChange={(e) => set(key, e.target.value)}
         className="rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm text-black dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
@@ -136,9 +139,11 @@ export default function ScoutPage() {
         </h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">
           Everything else here judges a product you already found. This one looks
-          for products you have not. The defaults are the rubric in filter form:
-          above the £12 floor, off the saturated top of the rank list, and with
-          few enough reviews that the leader is beatable.
+          for products you have not. The defaults look for proven demand and
+          failed execution: above the £12 floor, enough reviews to show people
+          already spend money here, and a rating low enough to show they are
+          not happy about it. You do not need to beat the leader, only to be
+          the better option for a slice of the people already buying.
         </p>
 
         <div className="mt-6 rounded border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
@@ -164,7 +169,8 @@ export default function ScoutPage() {
             {field("maxPrice", "Max price £", "Above this, buyers research")}
             {field("minRank", "Min sales rank", "Lower number = better selling")}
             {field("maxRank", "Max sales rank", "Beyond this, nothing sells")}
-            {field("maxReviewCount", "Max reviews", "The beatability ceiling")}
+            {field("minReviewCount", "Min reviews", "Proof people already buy here")}
+            {field("maxRating", "Max rating", "Where the opening is", "0.1")}
             {field("minSellerCount", "Min sellers")}
             {field("maxSellerCount", "Max sellers", "Many sellers = price war")}
             {field("limit", "Results", "Max 25. Searches cost tokens")}
@@ -224,6 +230,7 @@ export default function ScoutPage() {
                   onChange={(e) => setSortBy(e.target.value as keyof Candidate)}
                   className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-black dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                 >
+                  <option value="unhappyBuyers">Unhappy buyers</option>
                   <option value="rankDrops90">Sales in 90 days</option>
                   <option value="price">Price</option>
                   <option value="reviewCount">Reviews (most first)</option>
@@ -234,9 +241,11 @@ export default function ScoutPage() {
             </div>
 
             <p className="mt-2 text-xs leading-5 text-zinc-500">
-              Rank drops are the closest thing to a sales count Keepa gives you:
-              roughly one drop per unit sold. A product with high drops and few
-              reviews is selling without anyone loving it, which is the gap.
+              <strong className="font-medium">Unhappy buyers</strong> is review
+              count multiplied by the shortfall against a 4.5 rating. It is a
+              rough count of people who have already proved they will spend
+              money on this and were let down. Rank drops are the nearest thing
+              Keepa gives to a sales count, roughly one drop per unit sold.
             </p>
 
             <div className="mt-4 overflow-x-auto rounded border border-zinc-200 dark:border-zinc-800">
@@ -247,6 +256,7 @@ export default function ScoutPage() {
                     <th className="px-3 py-2 text-right font-medium">Price</th>
                     <th className="px-3 py-2 text-right font-medium">Rank</th>
                     <th className="px-3 py-2 text-right font-medium">Sales/90d</th>
+                    <th className="px-3 py-2 text-right font-medium">Unhappy</th>
                     <th className="px-3 py-2 text-right font-medium">Reviews</th>
                     <th className="px-3 py-2 text-right font-medium">Rating</th>
                     <th className="px-3 py-2 text-right font-medium">Sellers</th>
@@ -280,7 +290,13 @@ export default function ScoutPage() {
                       <td className="px-3 py-2 text-right font-medium tabular-nums">
                         {c.rankDrops90?.toLocaleString("en-GB") ?? "—"}
                       </td>
-                      <td className="px-3 py-2 text-right tabular-nums">
+                      <td
+                        className="px-3 py-2 text-right font-medium tabular-nums text-emerald-700 dark:text-emerald-400"
+                        title="Reviews × the shortfall against 4.5 stars. Roughly how many buyers this product has already let down."
+                      >
+                        {c.unhappyBuyers?.toLocaleString("en-GB") ?? "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-zinc-600 dark:text-zinc-400">
                         {c.reviewCount?.toLocaleString("en-GB") ?? "—"}
                       </td>
                       <td
@@ -323,6 +339,13 @@ export default function ScoutPage() {
               The scout does not judge. It narrows. Run the promising ones
               through the margin engine first, because that kills fastest and
               costs nothing, then judge the survivors.
+              <br />
+              <br />
+              One caution on the big listings. In a category with a
+              10,000-review incumbent, the thing that kills you is not their
+              reviews, it is what a click costs. You bid for the same keywords
+              against sellers with real budgets, so model the advertising line
+              higher than feels right before committing stock.
             </p>
           </>
         )}

@@ -42,7 +42,10 @@ export async function POST(request: Request) {
     maxRank: num("maxRank"),
     minPrice: num("minPrice"),
     maxPrice: num("maxPrice"),
+    minReviewCount: num("minReviewCount"),
     maxReviewCount: num("maxReviewCount"),
+    maxRating: num("maxRating"),
+    minRating: num("minRating"),
     minSellerCount: num("minSellerCount"),
     maxSellerCount: num("maxSellerCount"),
     limit: Math.min(num("limit") ?? MAX_RESULTS, MAX_RESULTS),
@@ -99,7 +102,23 @@ export async function POST(request: Request) {
       };
     });
 
-    return Response.json({ candidates, tokensLeft, found: asins.length });
+    // The thesis as a single number: how many buyers this product has already
+    // let down. Reviews prove the demand is real; the shortfall against a
+    // good rating says the execution is not. A big number here is a queue of
+    // people who have proved they will spend on this and were disappointed.
+    //
+    // 4.5 is the anchor for "what a product people actually like scores".
+    // Amazon's overall average sits a little below it, so this is deliberately
+    // a slightly demanding bar rather than a neutral one.
+    const withGap = candidates.map((c) => ({
+      ...c,
+      unhappyBuyers:
+        c.reviewCount !== null && c.rating !== null
+          ? Math.round(c.reviewCount * Math.max(0, 4.5 - c.rating))
+          : null,
+    }));
+
+    return Response.json({ candidates: withGap, tokensLeft, found: asins.length });
   } catch (error) {
     if (error instanceof MissingKeepaKey) {
       return Response.json({ error: error.message }, { status: 503 });
