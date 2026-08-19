@@ -5,7 +5,12 @@ import {
   findProducts,
   findUsRisers,
 } from "@/lib/keepa";
-import { buildCandidate, judgeFreely, type Candidate } from "@/lib/candidate";
+import {
+  buildCandidate,
+  dedupeVariations,
+  judgeFreely,
+  type Candidate,
+} from "@/lib/candidate";
 import { saveScoutCandidates, saveTriageVerdict } from "@/lib/db";
 import {
   TRIAGE_MODEL,
@@ -226,6 +231,20 @@ export async function POST(request: Request) {
         }
 
         // ── 3. Free arithmetic has already run; save before spending ─────
+        //
+        // Collapse variations first. Paying for five opinions on one product
+        // in five sizes is the most obvious waste in the whole chain, and it
+        // fills the shortlist with rows that read identically.
+        const { unique, collapsed } = dedupeVariations(all);
+        if (collapsed > 0) {
+          send(controller, {
+            type: "deduped",
+            collapsed,
+            note: `${collapsed} were size or colour variations of a product already on the list.`,
+          });
+        }
+        all.length = 0;
+        all.push(...unique);
         all.sort((a, b) => (b.score?.total ?? 0) - (a.score?.total ?? 0));
 
         let saved = 0;

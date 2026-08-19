@@ -32,6 +32,13 @@ export type Candidate = {
   videoCount: number;
   listingWeaknesses: string[];
   us: UsSignal | null;
+  /**
+   * The listing all the size and colour variations hang off. Two candidates
+   * sharing one is the same product twice, not two products.
+   */
+  parentAsin: string | null;
+  /** How many variations this row stands for. 1 unless it absorbed siblings. */
+  variationCount?: number;
   flags: string[];
   score: ScoreResult | null;
   killed: string | null;
@@ -228,6 +235,10 @@ export function buildCandidate(
       { hasAplus, videoCount },
     ),
     us: null,
+    parentAsin:
+      typeof product.parentAsin === "string" && product.parentAsin.length === 10
+        ? product.parentAsin
+        : null,
     flags,
     // Filled in after the US check, so the US signal can count towards it.
     score: null,
@@ -264,4 +275,53 @@ export function judgeFreely(c: Candidate, weights?: Weights): Candidate {
     reviewCount: c.reviewCount,
   });
   return { ...c, killed, score, verdict: decided.verdict, because: decided.because };
+}
+
+
+/**
+ * One row per product, not one per variation.
+ *
+ * A run of five categories produced a shortlist where five of the ten TEST
+ * verdicts were the same diamond painting kit in different sizes — same
+ * reviews, same rating, same fix, five separate paid opinions. At hundreds a
+ * day that is a hundred rows covering twenty products and five times the
+ * triage bill.
+ *
+ * Variations share a parentAsin, so they collapse onto it. The survivor is the
+ * highest scorer, because that is the variation actually worth looking at, and
+ * the count of what it stands for is kept — twelve variations is itself a
+ * signal about how committed the incumbent is.
+ */
+export function dedupeVariations(candidates: Candidate[]): {
+  unique: Candidate[];
+  collapsed: number;
+} {
+  const byParent = new Map<string, Candidate[]>();
+  for (const c of candidates) {
+    const key = c.parentAsin ?? c.asin;
+    const group = byParent.get(key);
+    if (group) group.push(c);
+    else byParent.set(key, [c]);
+  }
+
+  const unique: Candidate[] = [];
+  let collapsed = 0;
+
+  for (const group of byParent.values()) {
+    if (group.length === 1) {
+      unique.push(group[0]);
+      continue;
+    }
+    collapsed += group.length - 1;
+    const best = group.reduce((a, b) =>
+      (b.score?.total ?? 0) > (a.score?.total ?? 0) ? b : a,
+    );
+    unique.push({
+      ...best,
+      variationCount: group.length,
+      listingWeaknesses: best.listingWeaknesses,
+    });
+  }
+
+  return { unique, collapsed };
 }
