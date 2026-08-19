@@ -40,6 +40,16 @@ import { describeError } from "@/lib/claude";
  */
 export const maxDuration = 300;
 
+/**
+ * Above this, a growth ratio is describing a launch rather than a trend.
+ *
+ * Ten times over a year is already exceptional. The first live run produced
+ * ratios of 1,192,595 and 497,541 — products that were effectively unranked a
+ * year ago and are now near the top, which is a new listing finding its feet,
+ * not a category shifting underneath it.
+ */
+const MAX_PLAUSIBLE_GROWTH = 25;
+
 export async function POST(request: Request) {
   let body: Record<string, unknown> = {};
   try {
@@ -111,6 +121,18 @@ export async function POST(request: Request) {
           ? Math.round((usAvg365 / usCurrent) * 100) / 100
           : null;
 
+      // A ratio in the thousands is not a product that grew, it is a product
+      // that did not exist. A year's average rank of 1.2 million against a
+      // rank of 1 today means the listing spent most of the year unranked, and
+      // dividing by a rank of 1 turns that into a number that dwarfs every
+      // genuine riser and sorts them off the bottom of the page.
+      //
+      // Real, sustainable growth is a few times over, not a million. Anything
+      // past the ceiling is reported as an outlier rather than ranked, because
+      // it is usually a launch and occasionally a data artefact — and either
+      // way it is not evidence a UK gap exists.
+      const implausible = growth !== null && growth > MAX_PLAUSIBLE_GROWTH;
+
       const shared = {
         asin,
         title: usProduct.title ?? null,
@@ -118,6 +140,10 @@ export async function POST(request: Request) {
         usCurrentRank: usCurrent && usCurrent > 0 ? usCurrent : null,
         usAvg365Rank: usAvg365 && usAvg365 > 0 ? usAvg365 : null,
         growthRatio: growth,
+        looksLikeALaunch: implausible,
+        note: implausible
+          ? `Ranked around ${usAvg365?.toLocaleString("en-GB")} on average over the year and ${usCurrent} today. That is a listing that spent most of the year unranked, so treat it as a launch rather than growth.`
+          : null,
       };
 
       const ukProduct = ukByAsin.get(asin);
@@ -132,7 +158,10 @@ export async function POST(request: Request) {
       const ukRank =
         typeof ukCurrent?.[3] === "number" && ukCurrent[3] > 0 ? ukCurrent[3] : null;
 
-      if (ukProduct && (ukPrice !== null || ukRank !== null)) {
+      // A price is the test, not a rank or a review count. The first run
+      // returned a product with 103,693 UK reviews and no price — Amazon knows
+      // the listing and nobody can buy it, which is not "already here".
+      if (ukProduct && ukPrice !== null) {
         alreadyHere.push({
           ...shared,
           ukPrice,
@@ -151,8 +180,15 @@ export async function POST(request: Request) {
       }
     }
 
-    const sortByGrowth = (a: Record<string, unknown>, b: Record<string, unknown>) =>
-      ((b.growthRatio as number) ?? 0) - ((a.growthRatio as number) ?? 0);
+    // Launches sort below real growth rather than above it, which is the whole
+    // reason for the flag: unranked-to-rank-1 produces the biggest ratio in the
+    // set and would otherwise occupy every top slot.
+    const sortByGrowth = (a: Record<string, unknown>, b: Record<string, unknown>) => {
+      if (!!a.looksLikeALaunch !== !!b.looksLikeALaunch) {
+        return a.looksLikeALaunch ? 1 : -1;
+      }
+      return ((b.growthRatio as number) ?? 0) - ((a.growthRatio as number) ?? 0);
+    };
 
     return Response.json({
       criteria: {
@@ -164,8 +200,9 @@ export async function POST(request: Request) {
       alreadyHere: alreadyHere.sort(sortByGrowth),
       notHereYet: notHereYet.sort(sortByGrowth),
       guidance:
-        `${alreadyHere.length} are on Amazon UK and can go through the normal pipeline, with US growth as an extra signal. ` +
-        `${notHereYet.length} are not here yet — there is no UK price, rating or review count to score, so those are a first-mover bet on the inference that what sells there sells here. Different risk, judged differently.`,
+        `${alreadyHere.length} are buyable on Amazon UK and can go through the normal pipeline, with US growth as an extra signal. ` +
+        `${notHereYet.length} are not — no UK price, so nothing the rubric measures exists yet. Those are a first-mover bet on the inference that what sells there sells here, and a different risk. ` +
+        `${[...alreadyHere, ...notHereYet].filter((r) => r.looksLikeALaunch).length} of them look like launches rather than growth and are sorted last.`,
       tokensLeft: uk.tokensLeft ?? us.tokensLeft,
     });
   } catch (error) {
