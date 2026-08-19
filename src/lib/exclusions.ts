@@ -117,29 +117,28 @@ const NEVER_ANYWHERE = [
   "boots",
   "sandal",
 
-  // Worn accessories. Oscar's addition, and they need naming individually
-  // because they do not sit under a clothing department — hats and gloves are
-  // filed under Sports & Outdoors, Motorbike, Garden and Workwear depending on
-  // the pair. They carry apparel's problems anyway: sizing drives returns, and
-  // returns cost half the fulfilment fee.
+  // Worn accessories, but only the ones with a size.
+  //
+  // Sizing is the actual problem, not wearing. A sized item is returned when
+  // it does not fit, and returns cost half the fulfilment fee — which is why
+  // apparel is a Gate 0 kill in the first place. Hats, gloves and socks carry
+  // that; sunglasses and bags do not.
+  //
+  // So one-size accessories stay in the funnel. They are one-size by design,
+  // they can go viral in a way a jumper cannot, and none of the reasoning that
+  // rules out clothing applies to them. Oscar's call, and the sizing test is
+  // what makes it a rule rather than a preference.
+  //
+  // Named individually because they do not sit under a clothing department:
+  // hats are filed under Sports & Outdoors, gloves under Automotive or Garden
+  // depending on the pair.
   "hat",
   "cap",
   "beanie",
   "glove",
   "mitten",
-  // "scarf" does not appear inside "Scarves & Wraps" — the plural is
-  // irregular, so both stems are needed. Worth remembering for any word added
-  // here: these are substring matches against Amazon's own category names,
-  // which are almost always plural.
-  "scarf",
-  "scarv",
+  "sock",
   "belt",
-  "tie",
-  "wallet",
-  "purse",
-  "handbag",
-  "backpack",
-  "sunglasses",
   "slipper",
 ];
 
@@ -176,9 +175,11 @@ const NEVER_CATEGORIES = [
   "fashion",
   "shoes & bags",
   "shoes",
+  // Jewellery and watches stay out for a different reason from clothing: a 20%
+  // referral fee on jewellery, and watches are brand-dominated in a way that
+  // makes execution irrelevant.
   "jewellery",
   "watches",
-  "luggage",
   "dvd & blu-ray",
   "music",
   "pc & video games",

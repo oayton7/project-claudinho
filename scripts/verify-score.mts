@@ -189,7 +189,14 @@ assert("DVDs, UK naming", isMedia(tree("DVD & Blu-ray", "Action")));
 assert("hats, wherever they are filed", isMedia(tree("Sports & Outdoors", "Hats & Caps")));
 assert("gloves outside a clothing department", isMedia(tree("Automotive", "Motorbike Gloves")));
 assert("socks", isMedia(tree("Clothing", "Socks")));
-assert("scarves", isMedia(tree("Accessories", "Scarves & Wraps")));
+// Sizing is the test, not wearing. These have a size and are out.
+assert("belts have a size", isMedia(tree("Accessories", "Belts")));
+
+// These do not, so they stay in: one-size, and capable of going viral in a way
+// a jumper is not.
+assert("sunglasses stay in", !isMedia(tree("Accessories", "Sunglasses")));
+assert("bags stay in", !isMedia(tree("Luggage", "Backpacks")));
+assert("wallets stay in", !isMedia(tree("Accessories", "Wallets & Card Cases")));
 
 assert("a wireless charger is fine", !isMedia(tree("Electronics", "Wireless Chargers")));
 assert("a parasol base is fine", !isMedia(tree("Garden & Outdoors", "Parasol Stands & Bases")));
