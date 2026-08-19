@@ -140,6 +140,36 @@ const NEVER_ANYWHERE = [
   "sock",
   "belt",
   "slipper",
+
+  // Mains electrical and charging. Two reasons stacked, and either alone
+  // would be enough.
+  //
+  // Saturation: Anker, Belkin and Ugreen own the shelf, spend real money on
+  // ads, and compete on price. Marketing improvability is the thesis and
+  // there is none available against an incumbent already executing well.
+  //
+  // Compliance: anything connecting to mains needs UKCA marking, safety
+  // testing and technical documentation, and carries product-liability
+  // exposure if it catches fire. That is a barrier for a first-timer rather
+  // than a cost, and the tool was surfacing these as TEST without pricing it.
+  //
+  // This also removes wireless chargers, which earlier runs liked. Same
+  // reasoning applies — they still ship with a mains adapter — but say so if
+  // that is a step too far.
+  "charger",
+  "charging",
+  "power supply",
+  "power bank",
+  "power strip",
+  "adapter",
+  "adaptor",
+  "extension lead",
+  "plug",
+  "socket",
+  "fuse",
+  "battery pack",
+  "usb",
+  "cable",
 ];
 
 /**

@@ -198,7 +198,12 @@ assert("sunglasses stay in", !isMedia(tree("Accessories", "Sunglasses")));
 assert("bags stay in", !isMedia(tree("Luggage", "Backpacks")));
 assert("wallets stay in", !isMedia(tree("Accessories", "Wallets & Card Cases")));
 
-assert("a wireless charger is fine", !isMedia(tree("Electronics", "Wireless Chargers")));
+// Mains electrical is out: saturated, and UKCA marking plus liability is a
+// barrier rather than a cost for a first-timer.
+assert("USB-C chargers", isMedia(tree("Electronics", "Chargers & Power Supplies")));
+assert("wireless chargers too", isMedia(tree("Electronics", "Wireless Chargers")));
+assert("power strips", isMedia(tree("DIY & Tools", "Power Strips")));
+assert("cables", isMedia(tree("Electronics", "USB Cables")));
 assert("a parasol base is fine", !isMedia(tree("Garden & Outdoors", "Parasol Stands & Bases")));
 assert("a kitchen gadget is fine", !isMedia(tree("Home & Kitchen", "Kitchen Tools & Gadgets")));
 assert("a diamond painting kit is fine", !isMedia(tree("Home & Kitchen", "Diamond Painting Kits")));
