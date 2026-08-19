@@ -170,6 +170,32 @@ const NEVER_ANYWHERE = [
   "battery pack",
   "usb",
   "cable",
+
+  // Chemicals and anything hazardous. Same class of problem as supplements:
+  // Amazon gates the category, shipping is restricted as dangerous goods,
+  // freight costs more or refuses it, and the liability if someone is hurt
+  // sits with the seller. A pool flocculant reached TEST with none of that
+  // priced in.
+  "flocculant",
+  "clarifier",
+  "chlorine",
+  "bleach",
+  "pesticide",
+  "insecticide",
+  "herbicide",
+  "fertiliser",
+  "fertilizer",
+  "solvent",
+  "aerosol",
+  "paint",
+  "adhesive",
+  "sealant",
+  "grout",
+  "battery",
+  "batteries",
+  "lighter",
+  "fuel",
+  "pool chemical",
 ];
 
 /**

@@ -204,6 +204,9 @@ assert("USB-C chargers", isMedia(tree("Electronics", "Chargers & Power Supplies"
 assert("wireless chargers too", isMedia(tree("Electronics", "Wireless Chargers")));
 assert("power strips", isMedia(tree("DIY & Tools", "Power Strips")));
 assert("cables", isMedia(tree("Electronics", "USB Cables")));
+assert("pool chemicals", isMedia(tree("Garden", "Pool Clarifiers & Enzymes")));
+assert("batteries", isMedia(tree("Electronics", "Batteries")));
+
 assert("a parasol base is fine", !isMedia(tree("Garden & Outdoors", "Parasol Stands & Bases")));
 assert("a kitchen gadget is fine", !isMedia(tree("Home & Kitchen", "Kitchen Tools & Gadgets")));
 assert("a diamond painting kit is fine", !isMedia(tree("Home & Kitchen", "Diamond Painting Kits")));
