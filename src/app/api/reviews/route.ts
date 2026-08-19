@@ -112,22 +112,30 @@ export async function POST(request: Request) {
     const analysis = parsed.data;
     const cost = priceTriage(result.usage);
 
-    // Store the raw text too. Re-running the analysis later against a better
-    // prompt should not mean going back to Amazon for the words again.
-    await saveReviews({
-      asin,
-      raw_text: rawText,
-      review_count: body.reviewCount ?? 0,
-      star_filter: body.starFilter ?? "",
-      complaints: analysis.complaints.join("\n"),
-      wished_for: analysis.wishedFor.join("\n"),
-      fixable: analysis.fixable.join("\n"),
-      not_fixable: analysis.notFixable.join("\n"),
-      opportunity_score: analysis.opportunityScore,
-      summary: analysis.summary,
-    });
+    // Never lose a paid result to a storage problem. The analysis is the thing
+    // Oscar just paid for; the table not existing yet is a setup issue, and
+    // throwing away the answer to report it would be the wrong trade.
+    let savedWarning: string | null = null;
+    try {
+      await saveReviews({
+        asin,
+        raw_text: rawText,
+        review_count: body.reviewCount ?? 0,
+        star_filter: body.starFilter ?? "",
+        complaints: analysis.complaints.join("\n"),
+        wished_for: analysis.wishedFor.join("\n"),
+        fixable: analysis.fixable.join("\n"),
+        not_fixable: analysis.notFixable.join("\n"),
+        opportunity_score: analysis.opportunityScore,
+        summary: analysis.summary,
+      });
+    } catch (error) {
+      savedWarning = `The analysis worked but could not be saved: ${
+        error instanceof Error ? error.message : "unknown error"
+      } — most likely supabase/004_reviews.sql has not been run yet. Copy the results below before leaving this page.`;
+    }
 
-    return Response.json({ asin, analysis, cost });
+    return Response.json({ asin, analysis, cost, savedWarning });
   } catch (error) {
     console.error("[reviews]", error);
     return Response.json({ error: describeError(error) }, { status: 502 });

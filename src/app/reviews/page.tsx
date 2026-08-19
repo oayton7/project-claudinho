@@ -89,6 +89,7 @@ export default function ReviewsPage() {
       }
       setAnalysis(data.analysis);
       setCost(data.cost?.costPence ?? null);
+      if (data.savedWarning) setError(data.savedWarning);
     } catch {
       setError("Could not reach the server.");
     } finally {
@@ -231,7 +232,7 @@ export default function ReviewsPage() {
             if (stars) setStarFilter(`${stars[1]} star`);
           }}
           rows={10}
-          placeholder="Paste the reviews here…"
+          placeholder="Paste the reviews here — this is the box the bookmarklet fills your clipboard for…"
           className="mt-4 w-full rounded border border-zinc-300 bg-white p-3 font-mono text-xs text-black dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
         />
 
