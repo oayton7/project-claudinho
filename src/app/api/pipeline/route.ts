@@ -345,6 +345,7 @@ export async function POST(request: Request) {
               us_monthly_sold: c.us?.monthlySold ?? null,
               auto_verdict: c.verdict,
               auto_because: c.because,
+              parent_asin: c.parentAsin,
               has_aplus: c.hasAplus,
               video_count: c.videoCount,
               found_via: "us risers",

@@ -94,6 +94,7 @@ export type ScoutCandidateRow = {
   found_via: string | null;
   has_aplus: boolean | null;
   video_count: number | null;
+  parent_asin: string | null;
   judge_verdict: string | null;
   judge_summary: string | null;
   judge_json: {

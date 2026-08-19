@@ -196,6 +196,7 @@ export type ScoutCandidateRow = {
   found_via: string | null;
   has_aplus: boolean | null;
   video_count: number | null;
+  parent_asin: string | null;
   dismissed: boolean;
   my_notes: string;
   promoted_product_id: string | null;
@@ -224,11 +225,18 @@ export type ScoutCandidateInput = Omit<
   | "found_via"
   | "has_aplus"
   | "video_count"
+  | "parent_asin"
 > &
   Partial<
     Pick<
       ScoutCandidateRow,
-      "us_avg365_rank" | "us_current_rank" | "us_growth_ratio" | "found_via" | "has_aplus" | "video_count"
+      | "us_avg365_rank"
+      | "us_current_rank"
+      | "us_growth_ratio"
+      | "found_via"
+      | "has_aplus"
+      | "video_count"
+      | "parent_asin"
     >
   >;
 
@@ -448,8 +456,22 @@ export async function listShortlist(
   if (error) throw new Error(`Could not load the shortlist: ${error.message}`);
 
   const rows = (data ?? []) as ScoutCandidateRow[];
+
+  // Collapse siblings on the way out, not just on the way in.
+  //
+  // Dedupe inside a run does nothing about two runs a day apart each picking a
+  // different size of the same product. Both reach the shortlist looking
+  // separate, which is exactly the repetition the whole cap exists to avoid.
+  // Highest score wins, since that is the variation worth looking at.
+  const byParent = new Map<string, ScoutCandidateRow>();
+  for (const row of rows) {
+    const key = row.parent_asin ?? row.asin;
+    const held = byParent.get(key);
+    if (!held || (row.score ?? 0) > (held.score ?? 0)) byParent.set(key, row);
+  }
+
   const rank = { TEST: 0, PARK: 1, KILL: 2 } as const;
-  return rows.sort(
+  return [...byParent.values()].sort(
     (a, b) =>
       (rank[a.triage_verdict ?? "KILL"] ?? 3) - (rank[b.triage_verdict ?? "KILL"] ?? 3) ||
       (b.score ?? 0) - (a.score ?? 0),

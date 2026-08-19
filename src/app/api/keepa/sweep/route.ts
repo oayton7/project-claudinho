@@ -385,6 +385,7 @@ export async function POST(request: Request) {
               auto_because: c.because,
               // Two flags rather than prose, so they can be counted across
               // hundreds of rows later.
+              parent_asin: c.parentAsin,
               has_aplus: c.hasAplus,
               video_count: c.videoCount,
               found_via: pickedCategoryIds.length > 0 ? "uk category" : "seed asin",
