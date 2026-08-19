@@ -113,27 +113,24 @@ const NEVER_CANDIDATES = [
  * Two imperfect checks catch more than one perfect-looking one.
  */
 const NEVER_CATEGORIES = [
-  "rock",
-  "pop",
-  "jazz",
-  "classical",
-  "country",
-  "hip hop",
-  "soundtrack",
-  "album",
-  "movies",
-  "tv",
+  // Amazon's own top-level departments, matched at the root of the tree.
+  //
+  // Chasing genre names does not work: the list had rock, pop, jazz, country
+  // and hip hop and a blues album still came through. There are hundreds of
+  // genres and one root, so the root is the thing to check.
+  "cds & vinyl",
+  "digital music",
+  "movies & tv",
   "books",
-  "kindle",
-  "clothing",
-  "shoes",
-  "jewel",
-  "watches",
-  "men",
-  "women",
-  "girls",
-  "boys",
-  "baby",
+  "kindle store",
+  "audible",
+  "video games",
+  "apps & games",
+  "software",
+  "musical instruments",
+  "clothing, shoes & jewelry",
+  "clothing, shoes & accessories",
+  "handmade products",
 ];
 
 function isMedia(product: Record<string, unknown>): boolean {
@@ -143,15 +140,13 @@ function isMedia(product: Record<string, unknown>): boolean {
     return true;
   }
 
-  // Second pass on the category tree. A vinyl LP passed the field check and
-  // was sitting in "Album-Oriented Rock", so the tree catches what the
-  // product's own fields do not.
+  // Second pass on the root of the category tree, which is Amazon's
+  // department. A vinyl LP passed the field check while sitting in
+  // "Album-Oriented Rock"; genre names are endless and the department is one.
   const tree = (product.categoryTree ?? []) as { name?: string }[];
-  if (!Array.isArray(tree)) return false;
-  return tree.some((node) => {
-    const name = String(node?.name ?? "").toLowerCase();
-    return NEVER_CATEGORIES.some((bad) => name === bad || name.includes(bad));
-  });
+  if (!Array.isArray(tree) || tree.length === 0) return false;
+  const root = String(tree[0]?.name ?? "").toLowerCase();
+  return NEVER_CATEGORIES.some((bad) => root.includes(bad));
 }
 
 export async function POST(request: Request) {
