@@ -2,10 +2,15 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { DEFAULT_INPUT, type MarginInput, type MarginResult } from "@/lib/margin";
+import {
+  DEFAULT_INPUT,
+  type EditableNumericField,
+  type MarginInput,
+  type MarginResult,
+} from "@/lib/margin";
 
 type Field = {
-  key: keyof MarginInput;
+  key: EditableNumericField;
   label: string;
   hint: string;
   step?: string;
@@ -251,7 +256,7 @@ export default function MarginPage() {
   const [errors, setErrors] = useState<string[]>([]);
   const [pending, setPending] = useState(false);
 
-  function update(key: keyof MarginInput, raw: string) {
+  function update(key: EditableNumericField, raw: string) {
     setInput((prev) => ({ ...prev, [key]: raw === "" ? 0 : Number(raw) }));
   }
 
@@ -386,7 +391,7 @@ export default function MarginPage() {
                           type="number"
                           step={field.step ?? "0.01"}
                           min="0"
-                          value={input[field.key]}
+                          value={input[field.key] ?? ""}
                           onChange={(e) => update(field.key, e.target.value)}
                           className="w-24 rounded border border-zinc-300 bg-white px-2 py-1 text-right tabular-nums text-black dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                         />

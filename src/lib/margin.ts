@@ -1,3 +1,28 @@
+import {
+  DIGITAL_SERVICES_FEE_PCT,
+  FEE_CATEGORIES,
+  FEE_CATEGORY_LABELS,
+  MINIMUM_REFERRAL_FEE,
+  fbaFee as lookUpFbaFee,
+  referralFee as lookUpReferralFee,
+  referralFeePctFor,
+  type FeeCategory,
+} from "./fees.ts";
+
+export {
+  FEE_CATEGORIES,
+  FEE_CATEGORY_LABELS,
+  DIGITAL_SERVICES_FEE_PCT,
+  MINIMUM_REFERRAL_FEE,
+  referralFee,
+  referralFeePctFor,
+  fbaFee as lookUpFbaFee,
+  lowPriceThresholdFor,
+  FEE_TABLE_VERSION,
+  type Fee,
+  type FeeCategory,
+} from "./fees.ts";
+
 /**
  * The margin engine.
  *
@@ -15,7 +40,17 @@ export type MarginInput = {
   feeCategory?: FeeCategory;
   /** Overrides the table. Undefined means "use the category and price band". */
   referralFeePct?: number;
-  fbaFee: number;
+  /**
+   * Packed dimensions in millimetres, as Keepa reports them. Absent means the
+   * FBA fee is assumed at the worst plausible tier and says so — Amazon charges
+   * on the box, and weight alone cannot pick a tier.
+   */
+  packageLengthMm?: number | null;
+  packageWidthMm?: number | null;
+  packageHeightMm?: number | null;
+  packageWeightG?: number | null;
+  /** Overrides the FBA lookup when you have the real figure. */
+  fbaFee?: number;
   fuelSurchargePct: number;
   storagePerUnit: number;
   fobUnitPrice: number;
@@ -59,6 +94,15 @@ export type MarginResult = {
   referralFee: number;
   /** The 2% Amazon adds on top of referral and fulfilment fees alike. */
   digitalServicesFee: number;
+  fbaFee: number;
+  /** Which size tier the fulfilment fee came from. */
+  fbaTier: string;
+  /**
+   * Every figure that rests on a guess rather than a known value. Shown on
+   * screen: a number without its provenance is how a tool becomes confidently
+   * wrong.
+   */
+  assumptions: string[];
   /** Includes irrecoverable import VAT. This is what a non-registered seller pays. */
   landedUnitCost: number;
   /** Excludes import VAT, because a registered seller reclaims it. */
@@ -103,6 +147,10 @@ export const DEFAULT_INPUT: MarginInput = {
   feeCategory: "other",
   referralFeePct: 15,
   fbaFee: 2.9,
+  packageLengthMm: null,
+  packageWidthMm: null,
+  packageHeightMm: null,
+  packageWeightG: null,
   fuelSurchargePct: 1.5,
   storagePerUnit: 0.25,
   fobUnitPrice: 4.5,
@@ -118,116 +166,6 @@ export const DEFAULT_INPUT: MarginInput = {
   importVatRatePct: 20,
 };
 
-/**
- * Amazon UK referral fees, by category and price band.
- *
- * Replaces a flat 15% that was wrong on most products. For an £18 home item
- * the true rate is 8%, so the flat figure invented £1.26 a unit of cost on a
- * product whose whole contribution might be £4 — the engine was rejecting
- * things it should have kept.
- *
- * Verified against Amazon's published UK rates on 18 August 2026 and recorded
- * in section 19.5 of the plan. Amazon moves these, and 2026 has already seen
- * one large cut, so treat the date as an expiry rather than a signature.
- *
- * Where a category has a price break, the cheaper rate applies at or below the
- * threshold. Bands are expressed as an ordered list and the first match wins,
- * so a new band can be inserted without rewriting the logic.
- */
-export const FEE_CATEGORIES = [
-  "home",
-  "garden",
-  "diy",
-  "toys",
-  "sports",
-  "office",
-  "pet",
-  "petFood",
-  "beauty",
-  "health",
-  "grocery",
-  "clothing",
-  "electronics",
-  "videoGames",
-  "jewellery",
-  "deviceAccessories",
-  "other",
-] as const;
-
-export type FeeCategory = (typeof FEE_CATEGORIES)[number];
-
-export const FEE_CATEGORY_LABELS: Record<FeeCategory, string> = {
-  home: "Home & Kitchen",
-  garden: "Garden & Outdoors",
-  diy: "DIY & Tools",
-  toys: "Toys & Games",
-  sports: "Sports & Outdoors",
-  office: "Office Products",
-  pet: "Pet Supplies",
-  petFood: "Pet food & pet clothing",
-  beauty: "Beauty",
-  health: "Health & Personal Care",
-  grocery: "Grocery",
-  clothing: "Clothing & Accessories",
-  electronics: "Consumer electronics",
-  videoGames: "Video games & consoles",
-  jewellery: "Jewellery",
-  deviceAccessories: "Amazon device accessories",
-  other: "Anything else",
-};
-
-/** Ordered bands per category. First band whose ceiling covers the price wins. */
-const REFERRAL_BANDS: Record<FeeCategory, { upTo: number; pct: number }[]> = {
-  // The 2026 cut. Only Home has the £20 break; the neighbouring categories
-  // people assume are the same, like Garden and DIY, do not.
-  home: [{ upTo: 20, pct: 8 }, { upTo: Infinity, pct: 15 }],
-  garden: [{ upTo: Infinity, pct: 15 }],
-  diy: [{ upTo: Infinity, pct: 15 }],
-  toys: [{ upTo: Infinity, pct: 15 }],
-  sports: [{ upTo: Infinity, pct: 15 }],
-  office: [{ upTo: Infinity, pct: 15 }],
-  pet: [{ upTo: Infinity, pct: 15 }],
-  petFood: [{ upTo: 10, pct: 5 }, { upTo: Infinity, pct: 15 }],
-  beauty: [{ upTo: 10, pct: 8 }, { upTo: Infinity, pct: 15 }],
-  health: [{ upTo: 10, pct: 8 }, { upTo: Infinity, pct: 15 }],
-  grocery: [{ upTo: 10, pct: 8 }, { upTo: Infinity, pct: 15 }],
-  clothing: [
-    { upTo: 15, pct: 5 },
-    { upTo: 20, pct: 10 },
-    { upTo: Infinity, pct: 15 },
-  ],
-  electronics: [{ upTo: Infinity, pct: 7 }],
-  videoGames: [{ upTo: Infinity, pct: 8 }],
-  jewellery: [{ upTo: Infinity, pct: 20 }],
-  deviceAccessories: [{ upTo: Infinity, pct: 45 }],
-  // Unknown category assumes the common rate rather than the cheapest. An
-  // estimate that flatters is worse than no estimate, because you act on it.
-  other: [{ upTo: Infinity, pct: 15 }],
-};
-
-/** No referral fee is smaller than this, whatever the percentage works out at. */
-export const MINIMUM_REFERRAL_FEE = 0.25;
-
-/**
- * Amazon UK adds this on top of referral fees and fulfilment fees alike, so a
- * quoted 15% is really 15.3%. Small per unit and charged on every unit.
- *
- * Applied as a multiplier on the fee subtotal rather than as its own waterfall
- * line, so a fee type added later cannot quietly escape it.
- */
-export const DIGITAL_SERVICES_FEE_PCT = 2;
-
-export function referralFeePctFor(category: FeeCategory, sellPrice: number): number {
-  const bands = REFERRAL_BANDS[category] ?? REFERRAL_BANDS.other;
-  return (bands.find((b) => sellPrice <= b.upTo) ?? bands[bands.length - 1]).pct;
-}
-
-/** The actual fee in pounds, with the floor applied. */
-export function referralFeeFor(category: FeeCategory, sellPrice: number): number {
-  const raw = sellPrice * (referralFeePctFor(category, sellPrice) / 100);
-  return Math.max(raw, MINIMUM_REFERRAL_FEE);
-}
-
 const round = (n: number) => Math.round(n * 100) / 100;
 const pct = (n: number) => `${n.toFixed(1)}%`;
 const gbp = (n: number) => `£${n.toFixed(2)}`;
@@ -236,7 +174,6 @@ export function calculateMargin(input: MarginInput): MarginResult {
   const {
     sellPrice,
     feeCategory = "other",
-    fbaFee,
     fuelSurchargePct,
     storagePerUnit,
     fobUnitPrice,
@@ -252,14 +189,34 @@ export function calculateMargin(input: MarginInput): MarginResult {
     importVatRatePct,
   } = input;
 
-  // The table unless explicitly overridden. An override of 0 is a real answer
-  // and must survive, so this checks for undefined rather than falsiness.
+  const assumptions: string[] = [];
+
+  // The tables unless explicitly overridden. An override of 0 is a real answer
+  // and must survive, so these check for undefined rather than falsiness.
   const referralFeePct =
     input.referralFeePct ?? referralFeePctFor(feeCategory, sellPrice);
+  const referralLookup = lookUpReferralFee(feeCategory, sellPrice);
   const referralFee =
     input.referralFeePct === undefined
-      ? referralFeeFor(feeCategory, sellPrice)
+      ? referralLookup.amount
       : Math.max(sellPrice * (referralFeePct / 100), MINIMUM_REFERRAL_FEE);
+  if (input.referralFeePct === undefined && referralLookup.assumed) {
+    assumptions.push(`Referral fee: ${referralLookup.why}`);
+  }
+
+  const fbaLookup = lookUpFbaFee({
+    lengthMm: input.packageLengthMm,
+    widthMm: input.packageWidthMm,
+    heightMm: input.packageHeightMm,
+    weightG: input.packageWeightG,
+    sellPrice,
+    category: feeCategory,
+  });
+  const fbaFee = input.fbaFee ?? fbaLookup.amount;
+  const fbaTier = input.fbaFee === undefined ? fbaLookup.tier : "entered by hand";
+  if (input.fbaFee === undefined && fbaLookup.assumed) {
+    assumptions.push(`FBA fee: ${fbaLookup.why}`);
+  }
 
   const fuelSurcharge = fbaFee * (fuelSurchargePct / 100);
 
@@ -334,7 +291,14 @@ export function calculateMargin(input: MarginInput): MarginResult {
           ? `${FEE_CATEGORY_LABELS[feeCategory]} at £${sellPrice.toFixed(2)}${referralFee === MINIMUM_REFERRAL_FEE ? ", raised to the £0.25 minimum" : ""}`
           : "Overridden by hand, not from the fee table",
     },
-    { label: "FBA fulfilment", amount: -fbaFee },
+    {
+      label: "FBA fulfilment",
+      amount: -fbaFee,
+      note:
+        input.fbaFee === undefined
+          ? fbaLookup.why
+          : "Entered by hand, not from the size tiers",
+    },
     {
       label: `Fuel & logistics surcharge (${fuelSurchargePct}%)`,
       amount: -fuelSurcharge,
@@ -428,6 +392,9 @@ export function calculateMargin(input: MarginInput): MarginResult {
 
   return {
     referralFeePct,
+    fbaFee: round(fbaFee),
+    fbaTier,
+    assumptions,
     referralFee: round(referralFee),
     digitalServicesFee: round(digitalServicesFee),
     landedUnitCost: round(landedUnitCost),
@@ -451,21 +418,37 @@ export function calculateMargin(input: MarginInput): MarginResult {
 }
 
 /**
+ * The keys a numeric form field may bind to. Excludes the category, which is a
+ * string, and the packed dimensions, which are nullable and come from Keepa
+ * rather than being typed in.
+ */
+export type EditableNumericField = Exclude<
+  NumericField,
+  "packageLengthMm" | "packageWidthMm" | "packageHeightMm" | "packageWeightG"
+>;
+
+/**
  * Only the keys that genuinely hold a number, so the loop below stays typed.
  * feeCategory is a string and referralFeePct is now optional, so both are
  * handled separately after it.
  */
 type NumericField = {
-  [K in keyof MarginInput]-?: MarginInput[K] extends number | undefined
-    ? K extends "referralFeePct"
-      ? never
-      : K
+  [K in keyof MarginInput]-?: NonNullable<MarginInput[K]> extends number
+    ? K
     : never;
 }[keyof MarginInput];
 
-const NUMERIC_FIELDS: NumericField[] = [
+/** Required in every posted body. Optional fields are handled after the loop. */
+const NUMERIC_FIELDS: Exclude<
+  NumericField,
+  | "referralFeePct"
+  | "fbaFee"
+  | "packageLengthMm"
+  | "packageWidthMm"
+  | "packageHeightMm"
+  | "packageWeightG"
+>[] = [
   "sellPrice",
-  "fbaFee",
   "fuelSurchargePct",
   "storagePerUnit",
   "fobUnitPrice",
@@ -522,8 +505,17 @@ export function parseMarginInput(
     }
   }
 
-  // Optional by design: absent means the table decides. Present means the user
-  // checked Seller Central and is overriding it.
+  // Optional by design: absent means the tables decide. Present means the user
+  // checked Seller Central and is overriding them.
+  if (raw.fbaFee !== undefined && raw.fbaFee !== "") {
+    const fee = Number(raw.fbaFee);
+    if (Number.isNaN(fee) || fee < 0) {
+      errors.push("fbaFee must be a number, or left out entirely");
+    } else {
+      value.fbaFee = fee;
+    }
+  }
+
   if (raw.referralFeePct !== undefined && raw.referralFeePct !== "") {
     const pct = Number(raw.referralFeePct);
     if (Number.isNaN(pct) || pct < 0) {
@@ -562,6 +554,10 @@ export function maxLandedCost(
     feeCategory?: FeeCategory;
     referralFeePct?: number;
     fbaFee?: number;
+    packageLengthMm?: number | null;
+    packageWidthMm?: number | null;
+    packageHeightMm?: number | null;
+    packageWeightG?: number | null;
     fuelSurchargePct?: number;
     storagePerUnit?: number;
     returnsPct?: number;
@@ -571,7 +567,6 @@ export function maxLandedCost(
 ): { landed: number; bindingConstraint: "margin" | "landed cost cap" } {
   const {
     feeCategory = "other",
-    fbaFee = DEFAULT_INPUT.fbaFee,
     fuelSurchargePct = DEFAULT_INPUT.fuelSurchargePct,
     storagePerUnit = DEFAULT_INPUT.storagePerUnit,
     returnsPct = DEFAULT_INPUT.returnsPct,
@@ -581,8 +576,22 @@ export function maxLandedCost(
 
   const referralFee =
     opts.referralFeePct === undefined
-      ? referralFeeFor(feeCategory, sellPrice)
+      ? lookUpReferralFee(feeCategory, sellPrice).amount
       : Math.max(sellPrice * (opts.referralFeePct / 100), MINIMUM_REFERRAL_FEE);
+
+  // Same treatment as the forward calculation: no dimensions means the worst
+  // plausible tier, so the ceiling this returns is conservative rather than
+  // flattering. A supplier brief built on a flattering ceiling is worthless.
+  const fbaFee =
+    opts.fbaFee ??
+    lookUpFbaFee({
+      lengthMm: opts.packageLengthMm,
+      widthMm: opts.packageWidthMm,
+      heightMm: opts.packageHeightMm,
+      weightG: opts.packageWeightG,
+      sellPrice,
+      category: feeCategory,
+    }).amount;
   const fuelSurcharge = fbaFee * (fuelSurchargePct / 100);
   const digitalServicesFee =
     (referralFee + fbaFee + fuelSurcharge) * (DIGITAL_SERVICES_FEE_PCT / 100);

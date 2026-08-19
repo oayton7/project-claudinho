@@ -10,10 +10,14 @@
  *      actually use — below £90k that VAT is real money you cannot reclaim.
  */
 import {
+  referralFee,
+  fbaFee,
+  lowPriceThresholdFor,
+} from "../src/lib/fees.ts";
+import {
   calculateMargin,
   maxLandedCost,
   referralFeePctFor,
-  referralFeeFor,
   DIGITAL_SERVICES_FEE_PCT,
   MINIMUM_REFERRAL_FEE,
   DEFAULT_INPUT,
@@ -139,8 +143,8 @@ expect("£30 clothing", referralFeePctFor("clothing", 30), 15);
 expect("unknown category", referralFeePctFor("other", 18), 15);
 
 // The floor. 8% of £2 is 16p, and Amazon does not charge less than 25p.
-expect("£2 home product hits the floor", referralFeeFor("home", 2), MINIMUM_REFERRAL_FEE);
-expect("£18 home fee in pounds", referralFeeFor("home", 18), 1.44);
+expect("£2 home product hits the floor", referralFee("home", 2).amount, MINIMUM_REFERRAL_FEE);
+expect("£18 home fee in pounds", referralFee("home", 18).amount, 1.44);
 
 // --- The Digital Services Fee -------------------------------------------
 //
@@ -184,6 +188,68 @@ expect(
 );
 
 expect("DSF rate is the documented 2%", DIGITAL_SERVICES_FEE_PCT, 2);
+
+// --- FBA fulfilment by packed dimensions (brief session 1) ---------------
+//
+// Amazon charges on the box, not the contents, which is why weight alone
+// cannot pick a tier and why the 900g check in the Judge was only a proxy.
+console.log("\n--- FBA fees by size tier ---");
+
+const smallLight = fbaFee({
+  lengthMm: 300, widthMm: 200, heightMm: 20, weightG: 90,
+  sellPrice: 15, category: "toys",
+});
+expect("300x200x20mm, 90g, £15 toy", smallLight.amount, 1.7);
+expect("  and it is not an assumption", smallLight.assumed ? 1 : 0, 0);
+
+// The same box above the Low-Price threshold pays the standard rate.
+const sameBoxDearer = fbaFee({
+  lengthMm: 300, widthMm: 200, heightMm: 20, weightG: 90,
+  sellPrice: 25, category: "toys",
+});
+expect("same box at £25 loses Low-Price", sameBoxDearer.amount, 2.08);
+
+// Two thresholds, and picking the wrong one is how a product looks viable.
+expect("Low-Price threshold, toys", lowPriceThresholdFor("toys"), 20);
+expect("Low-Price threshold, beauty", lowPriceThresholdFor("beauty"), 10);
+expect("Low-Price threshold, home", lowPriceThresholdFor("home"), 10);
+
+// Rule 3: missing data assumes the expensive case, and says so.
+const noDims = fbaFee({
+  lengthMm: null, widthMm: null, heightMm: null, weightG: 200,
+  sellPrice: 15, category: "toys",
+});
+expect("no dimensions costs the worst tier", noDims.amount, 3.58);
+expect("  and is flagged as assumed", noDims.assumed ? 1 : 0, 1);
+expect(
+  "  and explains itself",
+  noDims.why.includes("no packed dimensions") ? 1 : 0,
+  1,
+);
+
+// Dimensions are compared longest-edge to longest-limit, so the order the
+// numbers arrive in must not change the answer.
+const oneWay = fbaFee({
+  lengthMm: 20, widthMm: 300, heightMm: 200, weightG: 90,
+  sellPrice: 15, category: "toys",
+});
+expect("dimension order does not matter", oneWay.amount, smallLight.amount);
+
+// A margin run with no dimensions must surface the assumption, not bury it.
+const assumedRun = calculateMargin({
+  ...DEFAULT_INPUT,
+  sellPrice: 18,
+  feeCategory: "home",
+  referralFeePct: undefined,
+  fbaFee: undefined,
+});
+expect("assumption reaches the result", assumedRun.assumptions.length > 0 ? 1 : 0, 1);
+expect(
+  "worst tier used",
+  assumedRun.fbaTier === "Standard parcel" ? 1 : 0,
+  1,
+);
+console.log(`       ${assumedRun.assumptions[0]}`);
 
 if (failed > 0) {
   console.error(`\n${failed} check(s) failed.`);
