@@ -79,6 +79,48 @@ export default function SweepPage() {
   const [onlyClean, setOnlyClean] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [seeds, setSeeds] = useState("");
+  const [term, setTerm] = useState("");
+  const [found, setFound] = useState<{ cat_id: number; name: string; path: string; product_count: number | null }[] | null>(null);
+  const [picks, setPicks] = useState<{ cat_id: number; name: string }[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [picksLoaded, setPicksLoaded] = useState(false);
+
+  async function loadPicks() {
+    const r = await fetch("/api/keepa/categories?picks=1");
+    const d = await r.json();
+    if (Array.isArray(d.picks)) setPicks(d.picks);
+    setPicksLoaded(true);
+  }
+
+  async function searchCategories() {
+    if (!term.trim()) return;
+    setSearching(true);
+    setError("");
+    try {
+      const r = await fetch(`/api/keepa/categories?term=${encodeURIComponent(term.trim())}`);
+      const d = await r.json();
+      if (d.error) {
+        setError(d.error);
+        return;
+      }
+      setFound(d.categories ?? []);
+      if (d.note) setError(d.note);
+    } catch {
+      setError("Could not search categories.");
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function togglePick(catId: number, name: string, picked: boolean) {
+    const r = await fetch("/api/keepa/categories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ catId, name, picked }),
+    });
+    const d = await r.json();
+    if (Array.isArray(d.picks)) setPicks(d.picks);
+  }
   const [triaging, setTriaging] = useState(false);
   const [triageCost, setTriageCost] = useState<number | null>(null);
   const [triageProgress, setTriageProgress] = useState(0);
@@ -208,6 +250,7 @@ export default function SweepPage() {
           weights: savedWeights(),
           // Splitting on anything that is not alphanumeric means a pasted
           // Amazon URL works as well as a bare ASIN.
+          categoryIds: picks.map((p) => p.cat_id),
           seedAsins: seeds
             .toUpperCase()
             .split(/[^A-Z0-9]+/)
@@ -307,24 +350,97 @@ export default function SweepPage() {
         </p>
 
         <div className="mt-6 rounded border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
-          <label className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-black dark:text-zinc-100">
-              Seed it with products you already like
-            </span>
-            <span className="mb-1 text-xs leading-5 text-zinc-500">
-              Paste one or more ASINs, or whole Amazon links. The sweep reads
-              the category Amazon has actually filed each one under and searches
-              there. This is the reliable path: the built-in category list was
-              written from memory and one of the ids has already been proved
-              wrong, so without a seed the sweep may find nothing.
-            </span>
+          <p className="text-sm font-medium text-black dark:text-zinc-100">
+            Pick categories to sweep
+          </p>
+          <p className="mt-1 text-xs leading-5 text-zinc-500">
+            Amazon&apos;s own category tree, straight from Keepa. Search a word,
+            tick what fits. Your picks are saved, so a run is one click next
+            time. Searching is free once a term has been looked up once.
+          </p>
+
+          <div className="mt-3 flex gap-2">
+            <input
+              value={term}
+              onChange={(e) => setTerm(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void searchCategories();
+              }}
+              onFocus={() => {
+                if (!picksLoaded) void loadPicks();
+              }}
+              placeholder="storage, kitchen, pet, garden…"
+              className="flex-1 rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm text-black dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+            />
+            <button
+              onClick={() => void searchCategories()}
+              disabled={searching}
+              className="rounded border border-zinc-400 px-3 py-1.5 text-sm text-zinc-800 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-200"
+            >
+              {searching ? "Searching…" : "Search"}
+            </button>
+          </div>
+
+          {found && found.length > 0 && (
+            <ul className="mt-3 max-h-56 space-y-1 overflow-y-auto">
+              {found.map((c) => {
+                const on = picks.some((p) => p.cat_id === c.cat_id);
+                return (
+                  <li key={c.cat_id}>
+                    <label className="flex cursor-pointer items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => void togglePick(c.cat_id, c.name, !on)}
+                        className="mt-1"
+                      />
+                      <span>
+                        <span className="text-black dark:text-zinc-100">{c.name}</span>
+                        <span className="block text-[11px] text-zinc-500">
+                          {c.path || `category ${c.cat_id}`}
+                          {c.product_count
+                            ? ` · ${c.product_count.toLocaleString("en-GB")} products`
+                            : ""}
+                        </span>
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {picks.length > 0 && (
+            <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+              <span className="text-xs text-zinc-500">Sweeping:</span>
+              {picks.map((p) => (
+                <button
+                  key={p.cat_id}
+                  onClick={() => void togglePick(p.cat_id, p.name, false)}
+                  title="Remove"
+                  className="rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-800 hover:line-through dark:bg-zinc-900 dark:text-zinc-200"
+                >
+                  {p.name} ×
+                </button>
+              ))}
+            </div>
+          )}
+
+          <details className="mt-4">
+            <summary className="cursor-pointer text-xs text-zinc-500">
+              Or seed from a product you already like
+            </summary>
             <input
               value={seeds}
               onChange={(e) => setSeeds(e.target.value)}
-              placeholder="B0FDS8Q4XJ, or https://www.amazon.co.uk/dp/B0FDS8Q4XJ"
-              className="rounded border border-zinc-300 bg-white px-2 py-1.5 font-mono text-sm text-black dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              placeholder="B0FDS8Q4XJ, or an Amazon link"
+              className="mt-2 w-full rounded border border-zinc-300 bg-white px-2 py-1.5 font-mono text-sm text-black dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
             />
-          </label>
+            <span className="mt-1 block text-[11px] leading-4 text-zinc-500">
+              Reads the category off that product instead. Ticked categories win
+              if both are set.
+            </span>
+          </details>
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-4">
@@ -335,9 +451,11 @@ export default function SweepPage() {
           >
             {running
               ? "Sweeping…"
-              : seeds.trim()
-                ? "Sweep these categories"
-                : "Run the sweep"}
+              : picks.length > 0
+                ? `Sweep ${picks.length} categor${picks.length === 1 ? "y" : "ies"}`
+                : seeds.trim()
+                  ? "Sweep from the seed"
+                  : "Run the sweep"}
           </button>
           <button
             onClick={() => {

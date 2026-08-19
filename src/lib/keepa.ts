@@ -93,7 +93,7 @@ function getKey(): string {
 export async function fetchProductRaw(
   asin: string,
   domain: KeepaDomain,
-  options: { history?: boolean; stats?: number } = {},
+  options: { history?: boolean; stats?: number; listing?: boolean } = {},
 ): Promise<{ raw: unknown; tokensLeft: number | null }> {
   const key = getKey();
   checkRate();
@@ -105,6 +105,14 @@ export async function fetchProductRaw(
     history: options.history === false ? "0" : "1",
   });
   if (options.stats) params.set("stats", String(options.stats));
+
+  // A+ content and video are the two highest-signal marketing gaps in the
+  // rubric and neither is returned by default. A listing with no video is a
+  // job you could do in an afternoon, and the tool cannot see it without this.
+  if (options.listing !== false) {
+    params.set("aplus", "1");
+    params.set("videos", "1");
+  }
 
   const response = await fetch(`https://api.keepa.com/product?${params}`, {
     // Keepa is a third party; do not let a slow response hold a serverless
@@ -445,6 +453,140 @@ export async function categoriesForAsins(
   return {
     categories: [...found.values()],
     missing: clean.filter((a) => !seenAsins.has(a)),
+    tokensLeft: typeof raw.tokensLeft === "number" ? raw.tokensLeft : null,
+  };
+}
+
+// ── The category tree (build brief, session 2) ─────────────────────────────
+//
+// This replaces seed ASINs. The sweep's hardcoded ids were written from memory
+// and one was proved to match nothing, so the tree now comes from Keepa and is
+// cached. Ticking a box is a better instruction than pasting a product, and
+// the ids are real by construction.
+
+export type KeepaCategory = {
+  catId: number;
+  name: string;
+  parent: number | null;
+  /** How many products Keepa has filed under it. Useful for spotting a dud. */
+  productCount: number | null;
+  /** Keepa's own ancestry, root first, so the picker can show a path. */
+  path: string[];
+};
+
+function parseCategoryObject(raw: unknown): KeepaCategory[] {
+  const categories = (raw as Record<string, unknown>)?.categories;
+  if (!categories || typeof categories !== "object") return [];
+
+  return Object.entries(categories as Record<string, Record<string, unknown>>).map(
+    ([id, value]) => ({
+      catId: Number(id),
+      name: typeof value.name === "string" ? value.name : `category ${id}`,
+      parent:
+        typeof value.parent === "number" && value.parent > 0 ? value.parent : null,
+      productCount:
+        typeof value.productCount === "number" ? value.productCount : null,
+      path: Array.isArray(value.contextFreeName)
+        ? (value.contextFreeName as string[])
+        : typeof value.contextFreeName === "string"
+          ? [value.contextFreeName as string]
+          : [],
+    }),
+  );
+}
+
+/** Search the tree by name. This is what the picker's search box calls. */
+export async function searchCategories(
+  term: string,
+  domain: KeepaDomain,
+): Promise<{ categories: KeepaCategory[]; tokensLeft: number | null }> {
+  const key = getKey();
+  checkRate();
+
+  const response = await fetch(
+    `https://api.keepa.com/search?key=${key}&domain=${domain}&type=category&term=${encodeURIComponent(term)}`,
+    { signal: AbortSignal.timeout(30_000) },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Keepa category search returned ${response.status}. ${await response
+        .text()
+        .catch(() => "")}`.trim(),
+    );
+  }
+
+  const raw = (await response.json()) as Record<string, unknown>;
+  return {
+    categories: parseCategoryObject(raw),
+    tokensLeft: typeof raw.tokensLeft === "number" ? raw.tokensLeft : null,
+  };
+}
+
+/**
+ * One category and, with `includeParents`, its ancestors. Passing 0 asks Keepa
+ * for the root categories, which is how the picker gets its first level.
+ */
+export async function lookUpCategory(
+  categoryId: number,
+  domain: KeepaDomain,
+  options: { includeParents?: boolean } = {},
+): Promise<{ categories: KeepaCategory[]; tokensLeft: number | null }> {
+  const key = getKey();
+  checkRate();
+
+  const response = await fetch(
+    `https://api.keepa.com/category?key=${key}&domain=${domain}&category=${categoryId}&parents=${options.includeParents ? 1 : 0}`,
+    { signal: AbortSignal.timeout(30_000) },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Keepa category lookup returned ${response.status}. ${await response
+        .text()
+        .catch(() => "")}`.trim(),
+    );
+  }
+
+  const raw = (await response.json()) as Record<string, unknown>;
+  return {
+    categories: parseCategoryObject(raw),
+    tokensLeft: typeof raw.tokensLeft === "number" ? raw.tokensLeft : null,
+  };
+}
+
+/**
+ * Amazon's own best sellers for a category.
+ *
+ * A useful second source alongside Product Finder: the finder answers "what
+ * matches these filters", the best-seller list answers "what is actually
+ * moving here", and the two disagree often enough to be worth having both.
+ */
+export async function bestSellers(
+  categoryId: number,
+  domain: KeepaDomain,
+): Promise<{ asins: string[]; tokensLeft: number | null }> {
+  const key = getKey();
+  checkRate();
+
+  const response = await fetch(
+    `https://api.keepa.com/bestsellers?key=${key}&domain=${domain}&category=${categoryId}`,
+    { signal: AbortSignal.timeout(30_000) },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Keepa best sellers returned ${response.status}. ${await response
+        .text()
+        .catch(() => "")}`.trim(),
+    );
+  }
+
+  const raw = (await response.json()) as Record<string, unknown>;
+  const list = raw.bestSellersList as Record<string, unknown> | undefined;
+
+  return {
+    asins: Array.isArray(list?.asinList) ? (list!.asinList as string[]) : [],
     tokensLeft: typeof raw.tokensLeft === "number" ? raw.tokensLeft : null,
   };
 }

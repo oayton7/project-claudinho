@@ -277,3 +277,83 @@ export async function getReviews(asin: string): Promise<ReviewRow | null> {
   if (error) throw new Error(`Could not load reviews: ${error.message}`);
   return (data as ReviewRow) ?? null;
 }
+
+
+// ── The cached category tree ───────────────────────────────────────────────
+
+export type CategoryRow = {
+  cat_id: number;
+  name: string;
+  parent_id: number | null;
+  product_count: number | null;
+  path: string;
+  fetched_at: string;
+};
+
+/** Upserts, so re-searching the same branch refreshes rather than duplicates. */
+export async function cacheCategories(
+  categories: {
+    catId: number;
+    name: string;
+    parent: number | null;
+    productCount: number | null;
+    path: string[];
+  }[],
+) {
+  if (categories.length === 0) return;
+  const db = getDb();
+  const { error } = await db.from("keepa_categories").upsert(
+    categories.map((c) => ({
+      cat_id: c.catId,
+      name: c.name,
+      parent_id: c.parent,
+      product_count: c.productCount,
+      path: c.path.join(" › "),
+      fetched_at: new Date().toISOString(),
+    })),
+    { onConflict: "cat_id" },
+  );
+  if (error) throw new Error(`Could not cache categories: ${error.message}`);
+}
+
+/** Reads the cache first so the picker costs nothing to browse. */
+export async function findCachedCategories(term: string): Promise<CategoryRow[]> {
+  const db = getDb();
+  const { data, error } = await db
+    .from("keepa_categories")
+    .select("*")
+    .ilike("name", `%${term}%`)
+    .order("product_count", { ascending: false, nullsFirst: false })
+    .limit(50);
+  if (error) throw new Error(`Could not read categories: ${error.message}`);
+  return (data ?? []) as CategoryRow[];
+}
+
+export async function listCategoryPicks(): Promise<
+  { cat_id: number; name: string }[]
+> {
+  const db = getDb();
+  const { data, error } = await db
+    .from("category_picks")
+    .select("cat_id, name")
+    .order("picked_at", { ascending: true });
+  if (error) throw new Error(`Could not read picks: ${error.message}`);
+  return (data ?? []) as { cat_id: number; name: string }[];
+}
+
+export async function setCategoryPick(
+  catId: number,
+  name: string,
+  picked: boolean,
+) {
+  const db = getDb();
+  if (!picked) {
+    const { error } = await db.from("category_picks").delete().eq("cat_id", catId);
+    if (error) throw new Error(`Could not unpick: ${error.message}`);
+    return;
+  }
+  const { error } = await db
+    .from("category_picks")
+    .upsert({ cat_id: catId, name }, { onConflict: "cat_id" });
+  if (error) throw new Error(`Could not pick: ${error.message}`);
+}

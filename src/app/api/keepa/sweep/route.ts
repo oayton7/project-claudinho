@@ -6,7 +6,7 @@ import {
   fetchProductRaw,
   findProducts,
 } from "@/lib/keepa";
-import { saveScoutCandidates } from "@/lib/db";
+import { listCategoryPicks, saveScoutCandidates } from "@/lib/db";
 import { maxLandedCost } from "@/lib/margin";
 import {
   DEFAULT_WEIGHTS,
@@ -80,6 +80,8 @@ type Candidate = {
   description: string | null;
   features: string[];
   imageCount: number;
+  hasAplus: boolean;
+  videoCount: number;
   listingWeaknesses: string[];
   us: UsSignal | null;
   flags: string[];
@@ -111,6 +113,7 @@ function listingWeaknesses(
   features: string[],
   description: string | null,
   imageCount: number,
+  listing: { hasAplus: boolean; videoCount: number },
 ): string[] {
   const weak: string[] = [];
 
@@ -145,6 +148,12 @@ function listingWeaknesses(
   if (!description || description.length < 100) weak.push("thin or missing description");
   if (imageCount > 0 && imageCount < 5) weak.push(`only ${imageCount} images`);
   if (imageCount === 0) weak.push("no images on record");
+
+  // The two biggest marketing gaps, and the two easiest to beat. A+ content is
+  // a Brand Registry feature a lazy seller never sets up; a video is an
+  // afternoon's work that most listings still do not have.
+  if (!listing.hasAplus) weak.push("no A+ content");
+  if (listing.videoCount === 0) weak.push("no video");
 
   return weak;
 }
@@ -192,6 +201,16 @@ function buildCandidate(
       ? product.imagesCSV.split(",").length
       : 0;
 
+  // Keepa returns these only when aplus=1 and videos=1 are requested. Absent
+  // fields mean "not asked for", which is not the same as "not present", so
+  // both are read defensively rather than assumed missing.
+  const aplus = product.aPlus ?? product.aplus;
+  const hasAplus = Array.isArray(aplus)
+    ? aplus.length > 0
+    : typeof aplus === "object" && aplus !== null;
+  const videos = product.videos;
+  const videoCount = Array.isArray(videos) ? videos.length : 0;
+
   // Free, because it is arithmetic. Solving for the supplier price you would
   // need is the only margin question answerable before you have a quote.
   const ceiling = price === null ? null : maxLandedCost(price).landed;
@@ -227,12 +246,15 @@ function buildCandidate(
     description,
     features,
     imageCount,
+    hasAplus,
+    videoCount,
     listingWeaknesses: listingWeaknesses(
       (product.title as string) ?? null,
       (product.brand as string) ?? null,
       features,
       rawDescription,
       imageCount,
+      { hasAplus, videoCount },
     ),
     us: null,
     flags,
@@ -286,6 +308,15 @@ export async function POST(request: Request) {
     limit: PER_CATEGORY,
   };
 
+  // Ticked categories are the primary input now. Seed ASINs remain as a
+  // fallback for "more things like this", but nothing depends on them.
+  const pickedCategoryIds = Array.isArray(body.categoryIds)
+    ? (body.categoryIds as unknown[])
+        .map((n) => Number(n))
+        .filter((n) => Number.isFinite(n) && n > 0)
+        .slice(0, 12)
+    : [];
+
   const seedAsins = Array.isArray(body.seedAsins)
     ? (body.seedAsins as unknown[])
         .map((a) => String(a).toUpperCase().trim())
@@ -316,7 +347,19 @@ export async function POST(request: Request) {
         // guessed ids entirely: the category comes off a real product.
         let categories = FALLBACK_CATEGORIES;
 
-        if (seedAsins.length > 0) {
+        if (pickedCategoryIds.length > 0) {
+          // Real ids from Keepa's own tree, so no lookup and no guessing.
+          const named = await listCategoryPicks().catch(() => []);
+          categories = pickedCategoryIds.map((id) => ({
+            id,
+            label: named.find((p) => p.cat_id === id)?.name ?? `category ${id}`,
+          }));
+          send(controller, {
+            type: "seeded",
+            categories: categories.map((c) => ({ id: c.id, name: c.label })),
+            missing: [],
+          });
+        } else if (seedAsins.length > 0) {
           send(controller, {
             type: "progress",
             index: 0,
@@ -388,6 +431,7 @@ export async function POST(request: Request) {
             const detail = await fetchProductRaw(fresh.join(","), KEEPA_DOMAIN.UK, {
               history: false,
               stats: 90,
+              listing: true,
             });
             tokensLeft = detail.tokensLeft ?? tokensLeft;
 
