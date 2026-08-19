@@ -56,24 +56,37 @@ const NEVER_CANDIDATES = [
  * Two imperfect checks catch more than one perfect-looking one.
  */
 const NEVER_CATEGORIES = [
-  // Amazon's own top-level departments, matched at the root of the tree.
+  // Amazon's top-level departments, matched at the root of the category tree.
   //
-  // Chasing genre names does not work: the list had rock, pop, jazz, country
-  // and hip hop and a blues album still came through. There are hundreds of
-  // genres and one root, so the root is the thing to check.
+  // Both marketplaces, because they do not use the same names. A run filtered
+  // with the US list alone came back proposing Jumpers, Leggings, Pyjama Sets
+  // and Cross Trainers — every one apparel, every one passing a filter that
+  // only knew "clothing, shoes & jewelry". Amazon UK calls that department
+  // "Clothing", and footwear lives in "Shoes & Bags".
+  //
+  // Matched on the root rather than the leaf because there are hundreds of
+  // leaves and a handful of departments.
+
+  // US names
+  "clothing, shoes & jewelry",
   "cds & vinyl",
-  "digital music",
   "movies & tv",
-  "books",
-  "kindle store",
-  "audible",
   "video games",
   "apps & games",
+  "kindle store",
+
+  // UK names
+  "clothing",
+  "shoes & bags",
+  "dvd & blu-ray",
+  "music",
+  "pc & video games",
+  "books",
+  "audible",
   "software",
   "musical instruments",
-  "clothing, shoes & jewelry",
-  "clothing, shoes & accessories",
-  "handmade products",
+  "digital music",
+  "handmade",
 ];
 
 export function isMedia(product: Record<string, unknown>): boolean {
