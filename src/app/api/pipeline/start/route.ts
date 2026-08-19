@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { createRun, listRuns } from "@/lib/db";
 import { describeError } from "@/lib/claude";
 
@@ -15,15 +16,23 @@ export async function POST(request: Request) {
 
     const run = await createRun(params, capPence);
 
-    // Kick the first tick without waiting for it.
-    void fetch(new URL("/api/pipeline/tick", request.url), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        cookie: request.headers.get("cookie") ?? "",
-      },
-      body: JSON.stringify({ runId: run.id }),
-    }).catch(() => {});
+    // Kick the first tick after this response is sent. An un-awaited fetch
+    // would be killed the moment the function returns, which is how the first
+    // version queued runs that never started.
+    after(async () => {
+      try {
+        await fetch(new URL("/api/pipeline/tick", request.url), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: request.headers.get("cookie") ?? "",
+          },
+          body: JSON.stringify({ runId: run.id }),
+        });
+      } catch {
+        // The watchdog picks up anything that never started.
+      }
+    });
 
     return Response.json({
       run: run.id,

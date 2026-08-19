@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import {
   KEEPA_DOMAIN,
@@ -59,16 +60,37 @@ export const maxDuration = 300;
 /** Products given a paid opinion per tick. Bounded so a tick always returns. */
 const TRIAGE_PER_TICK = 5;
 
-/** Hand off to the next slice without waiting for it. */
-function fireNextTick(request: Request) {
+/**
+ * Hand off to the next slice, after this response has been sent.
+ *
+ * The first version fired an un-awaited fetch and the chain died after two
+ * ticks. Vercel freezes a serverless function the moment it returns, so
+ * anything still in flight is killed — the request was never made, no error
+ * was raised, and the run simply stopped with its status still saying
+ * "sweeping". Exactly the invisible failure this project keeps meeting.
+ *
+ * `after` is the supported way to keep work alive past the response: the
+ * platform holds the function open for it. Still not awaited inside the
+ * handler, because waiting for the next slice would rebuild the one long
+ * request this whole design exists to avoid.
+ */
+function fireNextTick(request: Request, runId: string) {
   const url = new URL("/api/pipeline/tick", request.url);
-  // Deliberately not awaited. This tick's job is its own slice; waiting for
-  // the next would rebuild the single long request this design exists to
-  // avoid.
-  void fetch(url, {
-    method: "POST",
-    headers: { cookie: request.headers.get("cookie") ?? "" },
-  }).catch(() => {});
+  after(async () => {
+    try {
+      await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: request.headers.get("cookie") ?? "",
+        },
+        body: JSON.stringify({ runId }),
+      });
+    } catch {
+      // A lost hand-off is what the watchdog is for. Failing loudly here would
+      // mark a run failed when it is merely paused.
+    }
+  });
 }
 
 export async function POST(request: Request) {
@@ -158,7 +180,7 @@ export async function POST(request: Request) {
         stage_detail: `${categories.length} categories to sweep`,
         keepa_tokens_left: tokensLeft,
       });
-      fireNextTick(request);
+      fireNextTick(request, run.id);
       return Response.json({ run: run.id, status: "sweeping", categories: categories.map((c) => c.name) });
     }
 
@@ -193,7 +215,7 @@ export async function POST(request: Request) {
           triage_cursor: 0,
           stage_detail: queue.length > 0 ? `${queue.length} to judge` : "nothing survived to judge",
         });
-        if (queue.length > 0) fireNextTick(request);
+        if (queue.length > 0) fireNextTick(request, run.id);
         return Response.json({ run: run.id, status: queue.length > 0 ? "triaging" : "done", queued: queue.length });
       }
 
@@ -267,7 +289,7 @@ export async function POST(request: Request) {
       }
 
       await updateRun(run.id, { category_cursor: run.category_cursor + 1 });
-      fireNextTick(request);
+      fireNextTick(request, run.id);
       return Response.json({ run: run.id, status: "sweeping", category: category.name, found });
     }
 
@@ -368,7 +390,7 @@ export async function POST(request: Request) {
         stage_detail: finished ? "finished" : `${run.triage_queue.length - cursor} left to judge`,
       });
 
-      if (!finished) fireNextTick(request);
+      if (!finished) fireNextTick(request, run.id);
       return Response.json({
         run: run.id,
         status: finished ? "done" : "triaging",
