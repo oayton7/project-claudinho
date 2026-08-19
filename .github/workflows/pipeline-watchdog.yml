@@ -1,12 +1,11 @@
-# Restarts any run that has gone quiet.
+# Advances any queued or stalled run.
 #
-# A tick fires the next one before returning, so a run normally walks itself
-# forward with nothing watching. But a lost invocation — a cold start that
-# times out, a deploy landing mid-run — leaves it stopped with no error, which
-# is the worst kind of failure because nothing says so.
+# A tick works for about four minutes and then hands back, so a long run takes
+# several invocations. This provides them. It also recovers a run that stopped
+# for any other reason — a cold start that timed out, a deploy landing
+# mid-run, Keepa's token bucket running dry.
 #
-# This costs nothing (GitHub Actions on a repo that already exists) and turns
-# a lost tick into a ten-minute delay rather than a dead run.
+# Free: GitHub Actions on a repo that already exists.
 name: Pipeline watchdog
 
 on:
@@ -20,19 +19,53 @@ jobs:
   tick:
     runs-on: ubuntu-latest
     steps:
-      - name: Nudge any stalled run
+      - name: Advance the queue
+        env:
+          # The site address is public, so it lives here rather than in a
+          # secret. Asking for it as one added a second thing to configure and
+          # a second thing to get wrong, for no protection at all.
+          SITE_URL: https://project-claudinho.vercel.app
+          WATCHDOG_SECRET: ${{ secrets.WATCHDOG_SECRET }}
         run: |
-          # The tick endpoint claims the oldest run needing work, so calling it
-          # blind is enough — no need to know which run is stuck.
-          code=$(curl -s -o /tmp/out.json -w "%{http_code}" -X POST \
-            -H "Content-Type: application/json" \
-            -H "x-watchdog-secret: ${{ secrets.WATCHDOG_SECRET }}" \
-            "${{ secrets.SITE_URL }}/api/pipeline/tick" \
-            --max-time 120 || true)
-          echo "HTTP $code"
-          cat /tmp/out.json || true
-          # A watchdog that fails the build on a quiet minute is noise. Only a
-          # missing secret should ever fail it.
-          if [ -z "${{ secrets.SITE_URL }}" ]; then
-            echo "SITE_URL secret is not set"; exit 1
+          set -euo pipefail
+
+          if [ -z "${WATCHDOG_SECRET}" ]; then
+            echo "WATCHDOG_SECRET is not set as a repository secret."
+            echo "Add it under Settings -> Secrets and variables -> Actions,"
+            echo "matching the value set in Vercel."
+            exit 1
           fi
+
+          # A tick returns when its time budget is spent, so several are needed
+          # for a long run. Three per firing, every ten minutes, paces
+          # comfortably inside Keepa's refill rate of twenty tokens a minute.
+          for attempt in 1 2 3; do
+            echo "--- tick ${attempt} ---"
+            code=$(curl -sS -o /tmp/tick.json -w "%{http_code}" \
+              -X POST \
+              -H "Content-Type: application/json" \
+              -H "x-watchdog-secret: ${WATCHDOG_SECRET}" \
+              --max-time 280 \
+              "${SITE_URL}/api/pipeline/tick" || echo "000")
+
+            echo "HTTP ${code}"
+            head -c 600 /tmp/tick.json || true
+            echo
+
+            if [ "${code}" = "401" ]; then
+              echo "Rejected. The secret here does not match the one in Vercel."
+              exit 1
+            fi
+
+            # Nothing queued, or waiting on Keepa tokens. Either way there is
+            # no point hammering it — the next firing is ten minutes away and
+            # the bucket refills in that time.
+            if grep -q '"idle":true' /tmp/tick.json 2>/dev/null; then
+              echo "Nothing to do."
+              break
+            fi
+            if grep -q '"waiting":true' /tmp/tick.json 2>/dev/null; then
+              echo "Waiting for Keepa tokens. Stopping until the next firing."
+              break
+            fi
+          done
