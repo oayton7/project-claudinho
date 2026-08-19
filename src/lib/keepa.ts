@@ -330,7 +330,17 @@ export async function findProducts(
     page: 0,
   };
 
-  if (filters.categoryId) selection.rootCategory = filters.categoryId;
+  // categories_include, not rootCategory.
+  //
+  // A probe on 19 Aug 2026 settled this. rootCategory matches only a product's
+  // root node, so any leaf category returns zero — Kitchen Tools & Gadgets has
+  // 1.85m products and rootCategory found none of them. categories_include
+  // returned 1,837,200, which is Keepa's own count for that category.
+  //
+  // This is why every sweep so far has found nothing: not bad ids, the wrong
+  // key. 11052591 was a real category too, just a parent whose products live
+  // in its children.
+  if (filters.categoryId) selection.categories_include = [filters.categoryId];
   if (filters.minRank !== undefined) selection.current_SALES_gte = filters.minRank;
   if (filters.maxRank !== undefined) selection.current_SALES_lte = filters.maxRank;
   if (filters.minPrice !== undefined)
