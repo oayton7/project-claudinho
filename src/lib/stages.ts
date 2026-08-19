@@ -94,6 +94,21 @@ export type ScoutCandidateRow = {
   found_via: string | null;
   has_aplus: boolean | null;
   video_count: number | null;
+  judge_verdict: string | null;
+  judge_summary: string | null;
+  judge_json: {
+    targetBuyer?: { who?: string; score?: number; reasoning?: string };
+    improvability?: Record<string, { score?: number; reasoning?: string }>;
+    marketability?: Record<string, { score?: number; reasoning?: string }>;
+    specificFix?: string;
+    whyHasntSomeoneFixedIt?: string;
+    concerns?: string[];
+    verdict?: string;
+    summary?: string;
+  } | null;
+  judge_pence: number | null;
+  judge_at: string | null;
+  judge_missing: string | null;
   dismissed: boolean;
   my_notes: string;
   promoted_product_id: string | null;

@@ -16,6 +16,38 @@ export default function ShortlistPage() {
   const [showKilled, setShowKilled] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [deepening, setDeepening] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+
+  /**
+   * The deep look, on one product, when the sentence is not enough.
+   *
+   * Deliberately a button. It costs about 10p and takes over a minute, so
+   * running it on everything would be paying for opinions nobody reads —
+   * which is the whole reason triage exists in front of it.
+   */
+  async function goDeeper(asin: string) {
+    setDeepening(asin);
+    setError("");
+    try {
+      const response = await fetch("/api/judge/candidate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ asin }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error ?? "The deep judgement failed");
+        return;
+      }
+      setOpen(asin);
+      await load();
+    } catch {
+      setError("Could not reach the server.");
+    } finally {
+      setDeepening(null);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -59,6 +91,14 @@ export default function ShortlistPage() {
           are the ones to act on. PARK next, because &quot;why did you park
           this&quot; is worth being able to answer — a parked product is often
           the one you come back to when a supplier quote changes.
+          <br />
+          <br />
+          The one-line reason is the summary, not the ceiling.{" "}
+          <strong className="font-medium">Go deeper</strong> spends about 10p
+          and a minute on the full analysis: who buys it, what specifically you
+          would do differently, why nobody has already, and what would sink it.
+          A button rather than a stage, because running it on everything means
+          paying for opinions nobody reads.
         </p>
 
         <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -194,7 +234,113 @@ export default function ShortlistPage() {
                   </p>
                 )}
 
-                <div className="mt-3 flex flex-wrap gap-3 text-xs">
+                {r.judge_summary && (
+                  <div className="mt-3 rounded border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                        The deep look
+                        {r.judge_verdict && r.judge_verdict !== r.triage_verdict && (
+                          <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                            disagrees with triage: {r.judge_verdict}
+                          </span>
+                        )}
+                      </span>
+                      <button
+                        onClick={() => setOpen(open === r.asin ? null : r.asin)}
+                        className="text-xs text-zinc-500 underline"
+                      >
+                        {open === r.asin ? "less" : "everything it said"}
+                      </button>
+                    </div>
+                    <p className="mt-1 text-sm leading-6 text-zinc-800 dark:text-zinc-200">
+                      {r.judge_summary}
+                    </p>
+
+                    {open === r.asin && r.judge_json && (
+                      <div className="mt-3 space-y-3 border-t border-zinc-200 pt-3 text-sm leading-6 dark:border-zinc-800">
+                        {r.judge_json.specificFix && (
+                          <p className="text-emerald-800 dark:text-emerald-400">
+                            <strong className="font-medium">What you would do differently:</strong>{" "}
+                            {r.judge_json.specificFix}
+                          </p>
+                        )}
+                        {r.judge_json.whyHasntSomeoneFixedIt && (
+                          <p className="text-zinc-800 dark:text-zinc-200">
+                            <strong className="font-medium">
+                              Why nobody has already:
+                            </strong>{" "}
+                            {r.judge_json.whyHasntSomeoneFixedIt}
+                          </p>
+                        )}
+                        {r.judge_json.targetBuyer?.who && (
+                          <p className="text-zinc-800 dark:text-zinc-200">
+                            <strong className="font-medium">Who buys it:</strong>{" "}
+                            {r.judge_json.targetBuyer.who}
+                            {r.judge_json.targetBuyer.reasoning
+                              ? ` — ${r.judge_json.targetBuyer.reasoning}`
+                              : ""}
+                          </p>
+                        )}
+                        {["improvability", "marketability"].map((section) => {
+                          const block = r.judge_json?.[
+                            section as "improvability" | "marketability"
+                          ];
+                          if (!block) return null;
+                          return (
+                            <div key={section}>
+                              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                                {section}
+                              </p>
+                              <ul className="mt-1 space-y-1">
+                                {Object.entries(block).map(([k, v]) => (
+                                  <li key={k} className="text-zinc-700 dark:text-zinc-300">
+                                    <strong className="font-medium">
+                                      {k} {v?.score !== undefined ? `${v.score}/5` : ""}
+                                    </strong>
+                                    {v?.reasoning ? ` — ${v.reasoning}` : ""}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          );
+                        })}
+                        {(r.judge_json.concerns ?? []).length > 0 && (
+                          <div>
+                            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                              What would sink it
+                            </p>
+                            <ul className="mt-1 list-disc space-y-1 pl-5">
+                              {(r.judge_json.concerns ?? []).map((c) => (
+                                <li key={c} className="text-amber-800 dark:text-amber-400">
+                                  {c}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {r.judge_missing && (
+                          <p className="text-xs leading-5 text-zinc-500">
+                            <strong className="font-medium">
+                              It did not have:
+                            </strong>{" "}
+                            {r.judge_missing}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
+                  {!r.judge_summary && (
+                    <button
+                      onClick={() => void goDeeper(r.asin)}
+                      disabled={deepening !== null}
+                      className="rounded border border-zinc-400 px-2.5 py-1 font-medium text-zinc-800 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-200"
+                    >
+                      {deepening === r.asin ? "Thinking, about a minute…" : "Go deeper (~10p)"}
+                    </button>
+                  )}
                   <Link href={`/margin?asin=${r.asin}`} className="underline">
                     Margin
                   </Link>
