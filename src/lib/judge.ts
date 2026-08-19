@@ -615,7 +615,11 @@ Ignore delivery problems, wrong-item-sent, and complaints about Amazon rather th
 
 Be concrete. "Poor quality" is useless; "the clip snaps after a few weeks" is something a supplier can be briefed on. Quote the specific failure, not the sentiment.
 
-Score the opportunity on how much a genuinely better version would win, not on how angry people are.`;
+Score the opportunity on how much a genuinely better version would win, not on how angry people are.
+
+You are told which star ratings these reviews came from, and it changes how you should read them. Three-star reviews are the most useful: someone used the product, wanted to like it, and was let down by something specific. One-star reviews are noisier — a share of them are delivery failures, wrong items and buyer error rather than the product.
+
+But a low count of three-star reviews is itself a signal, not a gap. A product whose failure is catastrophic rather than marginal has almost none, because nobody lands in the middle: it either broke or it did not. When the set is mostly one and two star and they agree with each other on a specific physical failure, that agreement is strong evidence, not weak evidence. Say so in the summary.`;
 
 export function buildReviewPrompt(input: {
   productName: string;
@@ -623,7 +627,7 @@ export function buildReviewPrompt(input: {
   rawText: string;
 }): string {
   return `Product: ${input.productName}
-Reviews shown: ${input.starFilter || "unfiltered"}
+Star ratings these came from: ${input.starFilter || "not recorded"}
 
 ${input.rawText.slice(0, 60000)}`;
 }

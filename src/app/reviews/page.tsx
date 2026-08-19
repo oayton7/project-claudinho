@@ -22,36 +22,64 @@ type Analysis = {
  *
  * Written as one line because a bookmarklet has to be.
  */
+/**
+ * The collector, with a judgement built in.
+ *
+ * Three-star reviews are the richest seam: one-star is mostly delivery
+ * failures and wrong items, five-star says "great, thanks", and three-star is
+ * someone who wanted to like it, used it, and was let down by something
+ * specific.
+ *
+ * But a product can have almost none. The camping chair had three, because its
+ * failure is catastrophic rather than marginal — the chair breaks, so nobody
+ * lands in the middle. Insisting on three-star only would have found nothing
+ * on the clearest signal we have seen.
+ *
+ * So it widens rather than settles: three-star first, and only if that is too
+ * thin to read does it add two-star, then one-star. Which filters it used is
+ * recorded, because "12 reviews, all one-star" and "12 reviews, all three-star"
+ * are different evidence and the analysis is told which it is looking at.
+ */
+const ENOUGH_REVIEWS = 12;
+
 const BOOKMARKLET = `javascript:(async function(){
 var m=location.href.match(/\/(?:dp|product-reviews|gp\/product)\/([A-Z0-9]{10})/);
 if(!m){alert('Open the Amazon product page or its reviews page first.');return;}
-var asin=m[1],all=[],seen={},pages=0;
-for(var p=1;p<=12;p++){
- var u='/product-reviews/'+asin+'/?filterByStar=three_star&reviewerType=all_reviews&pageNumber='+p;
- var r;try{r=await fetch(u,{credentials:'include'});}catch(e){break;}
- if(!r.ok)break;
- var d=new DOMParser().parseFromString(await r.text(),'text/html');
- if(d.querySelector('form[name=signIn]')||/ap\\/signin/.test(d.documentElement.innerHTML.slice(0,4000))){
-  alert('Amazon is asking you to sign in. Sign in to amazon.co.uk in this browser, then click again.');return;}
- var rs=d.querySelectorAll('[data-hook="review"]');
- if(!rs.length)break;
- pages++;
- var before=all.length;
- rs.forEach(function(x){
-  var id=x.getAttribute('id')||'';
-  if(seen[id])return;seen[id]=1;
-  var st=x.querySelector('[data-hook="review-star-rating"],[data-hook="cmps-review-star-rating"]');
-  var t=x.querySelector('[data-hook="review-title"]');
-  var b=x.querySelector('[data-hook="review-body"]');
-  var body=b?b.textContent.trim():'';
-  if(!body)return;
-  all.push((st?st.textContent.trim().split('\\n')[0]:'')+' | '+(t?t.textContent.trim().split('\\n').pop().trim():'')+'\\n'+body);
- });
- if(all.length===before)break;
+var asin=m[1],all=[],seen={},used=[],ENOUGH=${ENOUGH_REVIEWS};
+async function grab(star,label){
+ var got=0;
+ for(var p=1;p<=8;p++){
+  var u='/product-reviews/'+asin+'/?filterByStar='+star+'&reviewerType=all_reviews&pageNumber='+p;
+  var r;try{r=await fetch(u,{credentials:'include'});}catch(e){break;}
+  if(!r.ok)break;
+  var h=await r.text();
+  if(/ap\\/signin/.test(h.slice(0,5000))){alert('Amazon wants you signed in. Sign in to amazon.co.uk in this browser, then click again.');throw 0;}
+  var d=new DOMParser().parseFromString(h,'text/html');
+  var rs=d.querySelectorAll('[data-hook="review"]');
+  if(!rs.length)break;
+  var before=all.length;
+  rs.forEach(function(x){
+   var id=x.getAttribute('id')||'';if(seen[id])return;seen[id]=1;
+   var st=x.querySelector('[data-hook="review-star-rating"],[data-hook="cmps-review-star-rating"]');
+   var t=x.querySelector('[data-hook="review-title"]');
+   var b=x.querySelector('[data-hook="review-body"]');
+   var body=b?b.textContent.trim().replace(/\\s+/g,' '):'';
+   if(!body)return;
+   all.push((st?st.textContent.trim()[0]:'?')+'★ '+(t?t.textContent.trim().split('\\n').pop().trim():'')+' — '+body);
+   got++;
+  });
+  if(all.length===before)break;
+ }
+ if(got)used.push(label+' ('+got+')');
 }
-if(!all.length){alert('No three-star review text found. Either there are none, or Amazon wants you signed in.');return;}
-var out='ASIN: '+asin+'\\nStars: 3\\nReviews: '+all.length+' across '+pages+' page(s)\\n\\n'+all.join('\\n\\n---\\n\\n');
-try{await navigator.clipboard.writeText(out);alert('Copied '+all.length+' three-star reviews for '+asin+'.\\n\\nPaste into Project Claudinho.');}
+try{
+ await grab('three_star','3 star');
+ if(all.length<ENOUGH)await grab('two_star','2 star');
+ if(all.length<ENOUGH)await grab('one_star','1 star');
+}catch(e){return;}
+if(!all.length){alert('No critical review text found for '+asin+'.');return;}
+var out='ASIN: '+asin+'\\nStars: '+used.join(', ')+'\\nReviews: '+all.length+'\\n\\n'+all.join('\\n\\n---\\n\\n');
+try{await navigator.clipboard.writeText(out);alert('Copied '+all.length+' reviews for '+asin+'.\\nPulled: '+used.join(', ')+'\\n\\nPaste into Project Claudinho.');}
 catch(e){var w=window.open('','_blank');w.document.write('<pre>'+out.replace(/</g,'&lt;')+'</pre>');}
 })();`;
 
@@ -137,6 +165,14 @@ export default function ReviewsPage() {
             reviews say &quot;great, thanks&quot;. Three stars is someone who
             wanted to like it, used it, and was let down by something specific.
             That specific thing is what you would fix.
+            <br />
+            <br />
+            <strong className="font-medium">And why it widens.</strong> A
+            product whose failure is catastrophic rather than marginal has
+            almost no three-star reviews — nobody lands in the middle on a chair
+            that snaps. The first real test of this had three. Insisting on
+            three-star only would have found nothing on the clearest signal we
+            have seen.
           </p>
           <p className="mt-1 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
             Amazon blocks servers from reading reviews and asks a logged-out
@@ -170,9 +206,10 @@ export default function ReviewsPage() {
               you do not need to click through to the reviews
             </li>
             <li>
-              Click the bookmarklet. It filters to{" "}
-              <strong className="font-medium">three stars</strong> itself, walks
-              every page of them, and copies the lot
+              Click the bookmarklet. It starts at{" "}
+              <strong className="font-medium">three stars</strong>, and only if
+              there are too few to read anything into does it widen to two, then
+              one. It records which it used
             </li>
             <li>Paste below. The ASIN fills itself in</li>
           </ol>
@@ -204,17 +241,12 @@ export default function ReviewsPage() {
             <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
               Which stars
             </span>
-            <select
+            <input
               value={starFilter}
               onChange={(e) => setStarFilter(e.target.value)}
+              placeholder="3 star"
               className="rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm text-black dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
-            >
-              <option>3 star</option>
-              <option>2 star</option>
-              <option>1 star</option>
-              <option>4 star</option>
-              <option>all</option>
-            </select>
+            />
           </label>
         </div>
 
@@ -228,8 +260,8 @@ export default function ReviewsPage() {
             // save reviews against the wrong product.
             const found = text.match(/^ASIN:\s*([A-Z0-9]{10})/m);
             if (found && !asin) setAsin(found[1]);
-            const stars = text.match(/^Stars:\s*(\d)/m);
-            if (stars) setStarFilter(`${stars[1]} star`);
+            const stars = text.match(/^Stars:\s*(.+)$/m);
+            if (stars) setStarFilter(stars[1].trim());
           }}
           rows={10}
           placeholder="Paste the reviews here — this is the box the bookmarklet fills your clipboard for…"
