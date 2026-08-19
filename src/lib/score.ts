@@ -287,12 +287,34 @@ export type Verdict = "TEST" | "PARK" | "KILL";
 export function autoVerdict(
   score: ScoreResult,
   killed: string | null,
+  evidence?: { rating: number | null; reviewCount: number | null },
 ): { verdict: Verdict; because: string } {
   if (killed) return { verdict: "KILL", because: killed };
 
+  // The thesis is proven demand executed badly, and rating and review count
+  // are how you see both. Without them the score is arithmetic about listing
+  // tidiness and nothing more.
+  //
+  // This is not hypothetical: a sweep on 19 Aug 2026 returned products scored
+  // 86 and marked TEST with rating and reviews both null, because the request
+  // was missing a parameter. The data bug is fixed; this stops the next one
+  // producing confident nonsense rather than a visible gap.
+  if (evidence && (evidence.rating === null || evidence.reviewCount === null)) {
+    return {
+      verdict: "PARK",
+      because: `scored ${score.total}, but Keepa returned no ${
+        evidence.rating === null && evidence.reviewCount === null
+          ? "rating or review count"
+          : evidence.rating === null
+            ? "rating"
+            : "review count"
+      }. Proven demand and poor execution are exactly what those two show, so this score is about listing tidiness rather than opportunity.`,
+    };
+  }
+
   // Low coverage means the score rests on very little. That is a reason to
   // look, not to trust, so it parks rather than passing or failing.
-  if (score.coverage < 40) {
+  if (score.coverage < 55) {
     return {
       verdict: "PARK",
       because: `only ${score.coverage}% of the data was available, so the score of ${score.total} is not worth much either way`,

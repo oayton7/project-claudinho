@@ -80,6 +80,7 @@ type Candidate = {
   description: string | null;
   features: string[];
   imageCount: number;
+  referralFeePct: number | null;
   hasAplus: boolean;
   videoCount: number;
   listingWeaknesses: string[];
@@ -112,7 +113,7 @@ function listingWeaknesses(
   brand: string | null,
   features: string[],
   description: string | null,
-  imageCount: number,
+  imageCount: number | null,
   listing: { hasAplus: boolean; videoCount: number },
 ): string[] {
   const weak: string[] = [];
@@ -146,8 +147,11 @@ function listingWeaknesses(
   else if (features.length < 4) weak.push(`only ${features.length} bullet points`);
 
   if (!description || description.length < 100) weak.push("thin or missing description");
-  if (imageCount > 0 && imageCount < 5) weak.push(`only ${imageCount} images`);
-  if (imageCount === 0) weak.push("no images on record");
+  if (imageCount !== null && imageCount > 0 && imageCount < 5)
+    weak.push(`only ${imageCount} images`);
+  // null means Keepa did not tell us, which is not the same as zero. Claiming
+  // a weakness that might not exist is worse than staying quiet about it.
+  if (imageCount === 0) weak.push("no images at all");
 
   // The two biggest marketing gaps, and the two easiest to beat. A+ content is
   // a Brand Registry feature a lazy seller never sets up; a video is an
@@ -196,14 +200,28 @@ function buildCandidate(
     rawDescription && rawDescription.length > 400
       ? rawDescription.slice(0, 400) + "…"
       : rawDescription;
-  const imageCount =
-    typeof product.imagesCSV === "string" && product.imagesCSV.length > 0
+  // `images`, not `imagesCSV`. Reading the wrong key made every product look
+  // like it had no photographs, so the tool invented a listing weakness that
+  // did not exist and then rewarded the product for it.
+  const images = product.images;
+  const imageCount = Array.isArray(images)
+    ? images.length
+    : typeof product.imagesCSV === "string" && product.imagesCSV.length > 0
       ? product.imagesCSV.split(",").length
-      : 0;
+      : null;
 
   // Keepa returns these only when aplus=1 and videos=1 are requested. Absent
   // fields mean "not asked for", which is not the same as "not present", so
   // both are read defensively rather than assumed missing.
+  // Keepa's real referral fee for this product, which beats any table built by
+  // hand. The table in fees.ts stays as the fallback for when it is absent.
+  const keepaReferralPct =
+    typeof product.referralFeePercent === "number"
+      ? product.referralFeePercent
+      : typeof product.referralFeePercentage === "number"
+        ? product.referralFeePercentage
+        : null;
+
   const aplus = product.aPlus ?? product.aplus;
   const hasAplus = Array.isArray(aplus)
     ? aplus.length > 0
@@ -213,7 +231,12 @@ function buildCandidate(
 
   // Free, because it is arithmetic. Solving for the supplier price you would
   // need is the only margin question answerable before you have a quote.
-  const ceiling = price === null ? null : maxLandedCost(price).landed;
+  const ceiling =
+    price === null
+      ? null
+      : maxLandedCost(price, {
+          referralFeePct: keepaReferralPct ?? undefined,
+        }).landed;
 
   // Concerns rather than a composite score. A single blended number would
   // hide which thing is actually wrong, and the rest of this app reports
@@ -245,7 +268,8 @@ function buildCandidate(
     monthlySold,
     description,
     features,
-    imageCount,
+    imageCount: imageCount ?? 0,
+    referralFeePct: keepaReferralPct,
     hasAplus,
     videoCount,
     listingWeaknesses: listingWeaknesses(
@@ -568,7 +592,10 @@ export async function POST(request: Request) {
           const scorable = toScorable(c);
           c.killed = hardKill(scorable);
           c.score = scoreCandidate(scorable, weights);
-          const decided = autoVerdict(c.score, c.killed);
+          const decided = autoVerdict(c.score, c.killed, {
+            rating: c.rating,
+            reviewCount: c.reviewCount,
+          });
           c.verdict = decided.verdict;
           c.because = decided.because;
         }

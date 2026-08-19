@@ -7,6 +7,7 @@
  */
 import {
   DEFAULT_WEIGHTS,
+  autoVerdict,
   hardKill,
   scoreCandidate,
   type Scorable,
@@ -120,6 +121,33 @@ console.log("\nHard kills, which stay absolute\n");
 expect("£4 product is killed", hardKill({ ...base, price: 4 }) !== null, true);
 expect("4kg product is killed", hardKill({ ...base, packageWeightG: 4000 }) !== null, true);
 expect("an ordinary product is not", hardKill(base), null);
+
+console.log("\nMissing evidence must not become a confident verdict\n");
+
+// The real failure this pins: a sweep returned products scored 86 and marked
+// TEST with rating and reviews both null, because the Keepa request was
+// missing a parameter. The data bug is fixed; this stops the next one being
+// invisible.
+const strongScore = scoreCandidate({ ...base, unhappyBuyers: 5000, listingWeaknessCount: 4 });
+
+const blind = autoVerdict(strongScore, null, { rating: null, reviewCount: null });
+assert(
+  "no rating or reviews cannot be a TEST",
+  blind.verdict === "PARK",
+  `${blind.verdict}: ${blind.because.slice(0, 70)}`,
+);
+
+const sighted = autoVerdict(strongScore, null, { rating: 3.8, reviewCount: 900 });
+assert(
+  "the same score with the evidence present can be",
+  sighted.verdict === "TEST",
+  `${sighted.verdict} at ${strongScore.total}`,
+);
+
+assert(
+  "a hard kill still outranks missing evidence",
+  autoVerdict(strongScore, "too heavy", { rating: null, reviewCount: null }).verdict === "KILL",
+);
 
 if (failed > 0) {
   console.error(`\n${failed} check(s) failed.`);

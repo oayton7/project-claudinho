@@ -109,9 +109,15 @@ export async function fetchProductRaw(
   // A+ content and video are the two highest-signal marketing gaps in the
   // rubric and neither is returned by default. A listing with no video is a
   // job you could do in an afternoon, and the tool cannot see it without this.
+  //
+  // rating matters more. Without it csv[16] and csv[17] come back as -1, so
+  // rating and review count are missing — and those two are the entire
+  // "proven demand, executed badly" thesis. A sweep on 19 Aug 2026 scored
+  // products at 86 and marked them TEST while both were null.
   if (options.listing !== false) {
     params.set("aplus", "1");
     params.set("videos", "1");
+    params.set("rating", "1");
   }
 
   const response = await fetch(`https://api.keepa.com/product?${params}`, {
