@@ -5,6 +5,7 @@
  * criterion and still surface if it is exceptional elsewhere. That is a claim
  * about behaviour, so it gets a test rather than a comment.
  */
+import { isMedia } from "../src/lib/exclusions.ts";
 import {
   DEFAULT_WEIGHTS,
   autoVerdict,
@@ -167,6 +168,28 @@ assert(
   "a hard kill still outranks missing evidence",
   autoVerdict(strongScore, "too heavy", { rating: null, reviewCount: null }).verdict === "KILL",
 );
+
+console.log("\nWhat is never a candidate\n");
+
+// Every one of these has slipped through a filter at some point today, which
+// is why they are pinned rather than trusted.
+const tree = (...names: string[]) => ({ categoryTree: names.map((name) => ({ name })) });
+
+assert("US clothing department", isMedia(tree("Clothing, Shoes & Jewelry", "Tops")));
+assert("UK clothing department", isMedia(tree("Clothing", "Jumpers")));
+assert("UK footwear", isMedia(tree("Shoes & Bags", "Cross Trainers")));
+assert("a leaf inside a fine department", isMedia(tree("Sports & Outdoors", "Leggings")));
+assert("supplements", isMedia(tree("Health & Personal Care", "Vitamins & Supplements")));
+assert("sports nutrition", isMedia(tree("Health & Personal Care", "Sports Nutrition", "Protein")));
+assert("food", isMedia(tree("Grocery", "Candy & Chocolate Bars")));
+assert("vinyl by department", isMedia(tree("CDs & Vinyl", "Album-Oriented Rock")));
+assert("DVDs, UK naming", isMedia(tree("DVD & Blu-ray", "Action")));
+
+// And the things that must survive, or the filter has eaten the funnel.
+assert("a wireless charger is fine", !isMedia(tree("Electronics", "Wireless Chargers")));
+assert("a parasol base is fine", !isMedia(tree("Garden & Outdoors", "Parasol Stands & Bases")));
+assert("a kitchen gadget is fine", !isMedia(tree("Home & Kitchen", "Kitchen Tools & Gadgets")));
+assert("a diamond painting kit is fine", !isMedia(tree("Home & Kitchen", "Diamond Painting Kits")));
 
 if (failed > 0) {
   console.error(`\n${failed} check(s) failed.`);

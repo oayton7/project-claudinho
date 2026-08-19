@@ -48,6 +48,77 @@ const NEVER_CANDIDATES = [
 ];
 
 /**
+ * Excluded wherever they appear in the tree, not just at the root.
+ *
+ * These sit inside departments that are otherwise fine. Health & Personal Care
+ * holds both a supplement and a hairbrush; Grocery holds both a protein powder
+ * and a storage jar. Blocking the department would throw away good candidates,
+ * so these are matched against every node.
+ *
+ * Supplements are out for reasons the rubric does not currently price. They
+ * are regulated as food, usually gated on Amazon so a new seller cannot list
+ * them at all, carry expiry dates that make dead stock worthless rather than
+ * merely slow, and carry real liability if anything goes wrong.
+ *
+ * Consumables generally have the expiry problem: a slow-moving non-perishable
+ * is capital tied up, a slow-moving edible is capital destroyed.
+ *
+ * Apparel repeats here because leaves like "Jumpers" and "Cross Trainers" have
+ * already slipped through a department check once.
+ */
+const NEVER_ANYWHERE = [
+  // Supplements and anything ingestible
+  "supplement",
+  "vitamin",
+  "mineral",
+  "sports nutrition",
+  "protein",
+  "herbal",
+  "probiotic",
+  "meal replacement",
+  "weight loss",
+  "food",
+  "grocery",
+  "drink",
+  "beverage",
+  "coffee",
+  "tea",
+  "snack",
+  "confectionery",
+  "candy",
+  "chocolate",
+  "spice",
+  "seasoning",
+  "baby food",
+  "pet food",
+  "medicine",
+  "pharmacy",
+
+  // Apparel and footwear, at leaf level
+  "jumper",
+  "legging",
+  "pyjama",
+  "trainer",
+  "t-shirt",
+  "tshirt",
+  "hoodie",
+  "sweatshirt",
+  "trouser",
+  "jean",
+  "skirt",
+  "dress",
+  "coat",
+  "jacket",
+  "sock",
+  "underwear",
+  "lingerie",
+  "swimwear",
+  "footwear",
+  "boots",
+  "sandal",
+];
+
+/**
  * Whole categories that are never candidates, matched on the category tree
  * rather than the product's own fields.
  *
@@ -77,7 +148,12 @@ const NEVER_CATEGORIES = [
 
   // UK names
   "clothing",
+  "fashion",
   "shoes & bags",
+  "shoes",
+  "jewellery",
+  "watches",
+  "luggage",
   "dvd & blu-ray",
   "music",
   "pc & video games",
@@ -102,6 +178,12 @@ export function isMedia(product: Record<string, unknown>): boolean {
   const tree = (product.categoryTree ?? []) as { name?: string }[];
   if (!Array.isArray(tree) || tree.length === 0) return false;
   const root = String(tree[0]?.name ?? "").toLowerCase();
-  return NEVER_CATEGORIES.some((bad) => root.includes(bad));
+  if (NEVER_CATEGORIES.some((bad) => root.includes(bad))) return true;
+
+  // Then every node, for the things that live inside departments worth keeping.
+  return tree.some((node) => {
+    const name = String(node?.name ?? "").toLowerCase();
+    return NEVER_ANYWHERE.some((bad) => name.includes(bad));
+  });
 }
 
