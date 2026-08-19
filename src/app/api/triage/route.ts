@@ -142,7 +142,9 @@ export async function POST(request: Request) {
               await saveTriageVerdict(asin, {
                 triage_verdict: parsed.data.verdict,
                 triage_because: parsed.data.reason,
-                triage_improvability: parsed.data.improvability,
+                // Rounded to one decimal to match the column. The model returns
+              // things like 6.5, and an integer column silently rejected them.
+              triage_improvability: Math.round(parsed.data.improvability * 10) / 10,
                 triage_main_risk: parsed.data.mainRisk,
               });
             } catch {

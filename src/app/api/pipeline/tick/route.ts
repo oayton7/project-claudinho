@@ -352,10 +352,16 @@ async function doOneSlice(request: Request, runId?: string) {
             JSON.parse(result.content.find((b) => b.type === "text")?.text ?? "{}"),
           );
           if (parsed.success) {
+            // Not wrapped in a catch that shrugs. A verdict that has been paid
+            // for and cannot be stored is worth failing the run over, because
+            // the alternative is what happened here: half the verdicts saved,
+            // half lost, and the run reporting success.
             await saveTriageVerdict(asin, {
               triage_verdict: parsed.data.verdict,
               triage_because: parsed.data.reason,
-              triage_improvability: parsed.data.improvability,
+              // Rounded to one decimal to match the column. The model returns
+              // things like 6.5, and an integer column silently rejected them.
+              triage_improvability: Math.round(parsed.data.improvability * 10) / 10,
               triage_main_risk: parsed.data.mainRisk,
             });
             judged += 1;
