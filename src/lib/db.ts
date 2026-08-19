@@ -491,3 +491,47 @@ export async function saveDeepJudgement(
     .eq("asin", asin);
   if (error) throw new Error(`Could not save the judgement: ${error.message}`);
 }
+
+
+/**
+ * What the tool has already made its mind up about.
+ *
+ * Two separate kinds of memory, and both are needed.
+ *
+ * Judged ASINs stop it paying twice for the same opinion. A product whose
+ * verdict is already on the row does not need another 0.2p spent on it, and
+ * the shortlist does not need it twice.
+ *
+ * Judged parents stop it paying for a sibling. Variations collapse within a
+ * run, but the next run pulls a different size of the same product and it
+ * looks new — same reviews, same rating, same fix, another 0.2p.
+ *
+ * Covered categories stop it returning to the same ground. The US riser search
+ * is fairly stable week to week, so without this every run re-sweeps Parasol
+ * Stands and Packaging Bags and finds the products it found last time.
+ */
+export async function alreadyCovered(): Promise<{
+  asins: Set<string>;
+  categories: Set<string>;
+}> {
+  const db = getDb();
+  const { data, error } = await db
+    .from("scout_candidates")
+    .select("asin, category, triage_verdict")
+    .limit(5000);
+
+  if (error) throw new Error(`Could not read what is covered: ${error.message}`);
+
+  const rows = (data ?? []) as {
+    asin: string;
+    category: string;
+    triage_verdict: string | null;
+  }[];
+
+  return {
+    // Only products actually judged. One that was swept and hard-killed by
+    // arithmetic costs nothing to re-check and might pass on a new price.
+    asins: new Set(rows.filter((r) => r.triage_verdict).map((r) => r.asin)),
+    categories: new Set(rows.map((r) => r.category).filter(Boolean)),
+  };
+}

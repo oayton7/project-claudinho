@@ -11,7 +11,7 @@ import {
   judgeFreely,
   type Candidate,
 } from "@/lib/candidate";
-import { saveScoutCandidates, saveTriageVerdict } from "@/lib/db";
+import { alreadyCovered, saveScoutCandidates, saveTriageVerdict } from "@/lib/db";
 import {
   TRIAGE_MODEL,
   describeError,
@@ -147,14 +147,35 @@ export async function POST(request: Request) {
           else tally.set(leaf.catId, { id: leaf.catId, name: leaf.name, risers: 1 });
         }
 
-        const categories = [...tally.values()]
-          .sort((a, b) => b.risers - a.risers)
-          .slice(0, num("categoryLimit", CATEGORY_LIMIT));
+        // What has been covered already. The US riser search is fairly stable
+        // week to week, so without this every run re-sweeps the same
+        // categories and re-finds the same products.
+        const covered = await alreadyCovered().catch(() => ({
+          asins: new Set<string>(),
+          categories: new Set<string>(),
+        }));
+
+        const ranked = [...tally.values()].sort((a, b) => b.risers - a.risers);
+        const unseen = ranked.filter((c) => !covered.categories.has(c.name));
+
+        // Fall back to covered ground only if there is nothing new, and say so
+        // — "we have run out of new categories" is a finding about the funnel,
+        // not a reason to silently repeat.
+        const exhausted = unseen.length === 0;
+        const categories = (exhausted ? ranked : unseen).slice(
+          0,
+          num("categoryLimit", CATEGORY_LIMIT),
+        );
 
         send(controller, {
           type: "categories",
           categories,
           skipped,
+          skippedAsAlreadyCovered: ranked.length - unseen.length,
+          exhausted,
+          exhaustedNote: exhausted
+            ? "Every category the US risers point at has been swept before. Widen the growth band or the price range to reach new ground."
+            : null,
           note: "UK category ids, read from each riser's UK listing. A US id would find nothing here — the trees are per-marketplace.",
         });
 
@@ -282,14 +303,37 @@ export async function POST(request: Request) {
           send(controller, { type: "warning", warning: `Could not save: ${describeError(error)}` });
         }
 
-        const survivors = all.filter((c) => !c.killed).slice(0, num("triageLimit", TRIAGE_LIMIT));
+        // Never pay twice for the same opinion. A product already judged has a
+        // verdict on its row, and a sibling of one has the same reviews, the
+        // same rating and the same fix.
+        const judgedParents = new Set(
+          all
+            .filter((c) => covered.asins.has(c.asin))
+            .map((c) => c.parentAsin)
+            .filter(Boolean) as string[],
+        );
+
+        const fresh = all.filter(
+          (c) =>
+            !c.killed &&
+            !covered.asins.has(c.asin) &&
+            !(c.parentAsin && judgedParents.has(c.parentAsin)),
+        );
+
+        const repeats = all.filter((c) => !c.killed).length - fresh.length;
+        const survivors = fresh.slice(0, num("triageLimit", TRIAGE_LIMIT));
 
         send(controller, {
           type: "scored",
           scanned: all.length,
           killed: all.length - all.filter((c) => !c.killed).length,
           saved,
+          alreadyJudged: repeats,
           toTriage: survivors.length,
+          note:
+            repeats > 0
+              ? `${repeats} survived the arithmetic but have been judged before, or are a sibling of something judged before. Not paid for again.`
+              : null,
         });
 
         // ── 4. Paid opinions, on survivors only ──────────────────────────
