@@ -70,6 +70,8 @@ export async function POST(request: Request) {
     const risers = await findUsRisers({
       minGrowth,
       maxCurrentRank: num("maxCurrentRank", 20000),
+      minCurrentRank: num("minCurrentRank", 500),
+      maxAvg365Rank: num("maxAvg365Rank", 200000),
       minPrice: num("minPrice", 10),
       maxPrice: num("maxPrice", 60),
       limit,
@@ -193,8 +195,10 @@ export async function POST(request: Request) {
     return Response.json({
       criteria: {
         grownBy: `${Math.round((minGrowth - 1) * 100)}% or more over the year`,
-        rankTodayBetterThan: risers.currentCeiling,
-        yearAverageWorseThan: risers.yearFloor,
+        rankTodayBetween: `${risers.currentFloor}–${risers.currentCeiling}`,
+        yearAverageBetween: `${risers.yearFloor}–${risers.yearCeiling}`,
+        whyBothEnds:
+          "Bounded at both ends so the search finds products that were ranked all year and improved, rather than products that were unranked a year ago. Without the upper bound on the year's average, every result is a launch.",
         totalUsMatches: risers.totalMatches,
       },
       alreadyHere: alreadyHere.sort(sortByGrowth),

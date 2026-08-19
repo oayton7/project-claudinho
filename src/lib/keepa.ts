@@ -630,6 +630,23 @@ export type RiserFilters = {
   minGrowth?: number;
   /** Rank today. Lower is better, so this is the ceiling on how good it is now. */
   maxCurrentRank?: number;
+  /**
+   * Rank today, floor. Excludes the top of the chart, and the reason is
+   * arithmetic rather than taste: growth is avg365 divided by current, so a
+   * rank of 1 makes the ratio equal the year's average and swamps everything
+   * else. A product at rank 1 is also not a candidate for £3,000.
+   */
+  minCurrentRank?: number;
+  /**
+   * The year's average rank, ceiling. This is the one that matters and it was
+   * missing on the first live run: with no upper bound, the filter selects
+   * hardest for products that were *unranked* a year ago, which is what a new
+   * listing looks like. Every one of the first twenty results was a launch.
+   *
+   * Bounding it means the product was ranked all year and simply got better,
+   * which is the trend worth following into another market.
+   */
+  maxAvg365Rank?: number;
   minPrice?: number;
   maxPrice?: number;
   limit?: number;
@@ -639,7 +656,9 @@ export async function findUsRisers(filters: RiserFilters = {}): Promise<{
   asins: string[];
   growth: number;
   currentCeiling: number;
+  currentFloor: number;
   yearFloor: number;
+  yearCeiling: number;
   totalMatches: number | null;
   tokensLeft: number | null;
 }> {
@@ -652,13 +671,18 @@ export async function findUsRisers(filters: RiserFilters = {}): Promise<{
   // hold. Worse means numerically larger, because rank is inverted.
   const yearFloor = Math.round(currentCeiling * growth);
 
+  const currentFloor = filters.minCurrentRank ?? 500;
+  const yearCeiling = filters.maxAvg365Rank ?? 200000;
+
   const selection: Record<string, unknown> = {
     productType: [0, 1],
     perPage: KEEPA_MIN_PER_PAGE,
     page: 0,
     sort: [["current_SALES", "asc"]],
+    current_SALES_gte: currentFloor,
     current_SALES_lte: currentCeiling,
     avg365_SALES_gte: yearFloor,
+    avg365_SALES_lte: yearCeiling,
   };
   if (filters.minPrice !== undefined)
     selection.current_NEW_gte = Math.round(filters.minPrice * 100);
@@ -687,7 +711,9 @@ export async function findUsRisers(filters: RiserFilters = {}): Promise<{
     asins: filters.limit ? asins.slice(0, filters.limit) : asins,
     growth,
     currentCeiling,
+    currentFloor,
     yearFloor,
+    yearCeiling,
     totalMatches: typeof raw.totalResults === "number" ? raw.totalResults : null,
     tokensLeft: typeof raw.tokensLeft === "number" ? raw.tokensLeft : null,
   };
