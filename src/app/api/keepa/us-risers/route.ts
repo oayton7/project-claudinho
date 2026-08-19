@@ -48,7 +48,42 @@ export const maxDuration = 300;
  * year ago and are now near the top, which is a new listing finding its feet,
  * not a category shifting underneath it.
  */
-const MAX_PLAUSIBLE_GROWTH = 25;
+const MAX_PLAUSIBLE_GROWTH = 10;
+
+/**
+ * Product groups that are never candidates, whatever their growth.
+ *
+ * The first bounded run came back full of DVDs — Winnie the Pooh, two Batman
+ * releases — because media rank is spiky: a re-release or a film anniversary
+ * moves a catalogue title thousands of places in a week. That is real
+ * movement and completely useless here. You cannot private-label a DVD, and
+ * the rubric would kill every one of them on the first gate anyway.
+ *
+ * Filtered on the product itself rather than by excluding categories, because
+ * Keepa's productGroup is one field and the category tree is thousands.
+ */
+const NEVER_CANDIDATES = [
+  "dvd",
+  "book",
+  "abis_book",
+  "music",
+  "digital_music",
+  "video_games",
+  "videogames",
+  "software",
+  "mobile_application",
+  "ebooks",
+  "digital_video_download",
+  "toy_figure",
+];
+
+function isMedia(product: Record<string, unknown>): boolean {
+  const group = String(product.productGroup ?? "").toLowerCase();
+  const binding = String(product.binding ?? "").toLowerCase();
+  return NEVER_CANDIDATES.some(
+    (bad) => group.includes(bad) || binding.includes(bad),
+  );
+}
 
 export async function POST(request: Request) {
   let body: Record<string, unknown> = {};
@@ -112,7 +147,13 @@ export async function POST(request: Request) {
     const alreadyHere: Record<string, unknown>[] = [];
     const notHereYet: Record<string, unknown>[] = [];
 
+    let mediaSkipped = 0;
+
     for (const usProduct of usProducts) {
+      if (isMedia(usProduct)) {
+        mediaSkipped += 1;
+        continue;
+      }
       const asin = usProduct.asin as string;
       const usStats = (usProduct.stats ?? {}) as Record<string, unknown>;
       const usCurrent = (usStats.current as number[] | undefined)?.[3] ?? null;
@@ -192,7 +233,33 @@ export async function POST(request: Request) {
       return ((b.growthRatio as number) ?? 0) - ((a.growthRatio as number) ?? 0);
     };
 
+    // The categories the real risers sit in. This is what the funnel is for:
+    // not "buy this product" but "this corner of the market is moving, go and
+    // sweep it here". Launches are excluded, since a single new listing says
+    // nothing about the category around it.
+    const categoryTally = new Map<number, { id: number; name: string; risers: number }>();
+    for (const usProduct of usProducts) {
+      if (isMedia(usProduct)) continue;
+      const asin = usProduct.asin as string;
+      const row = [...alreadyHere, ...notHereYet].find((r) => r.asin === asin);
+      if (!row || row.looksLikeALaunch) continue;
+
+      const tree = (usProduct.categoryTree ?? []) as { catId: number; name: string }[];
+      // The last node is the most specific, which is the one worth sweeping.
+      const leaf = Array.isArray(tree) ? tree[tree.length - 1] : null;
+      if (!leaf?.catId) continue;
+      const existing = categoryTally.get(leaf.catId);
+      if (existing) existing.risers += 1;
+      else categoryTally.set(leaf.catId, { id: leaf.catId, name: leaf.name, risers: 1 });
+    }
+
+    const growingCategories = [...categoryTally.values()].sort(
+      (a, b) => b.risers - a.risers,
+    );
+
     return Response.json({
+      growingCategories,
+      mediaSkipped,
       criteria: {
         grownBy: `${Math.round((minGrowth - 1) * 100)}% or more over the year`,
         rankTodayBetween: `${risers.currentFloor}–${risers.currentCeiling}`,
@@ -206,7 +273,8 @@ export async function POST(request: Request) {
       guidance:
         `${alreadyHere.length} are buyable on Amazon UK and can go through the normal pipeline, with US growth as an extra signal. ` +
         `${notHereYet.length} are not — no UK price, so nothing the rubric measures exists yet. Those are a first-mover bet on the inference that what sells there sells here, and a different risk. ` +
-        `${[...alreadyHere, ...notHereYet].filter((r) => r.looksLikeALaunch).length} of them look like launches rather than growth and are sorted last.`,
+        `${[...alreadyHere, ...notHereYet].filter((r) => r.looksLikeALaunch).length} look like launches rather than growth and are sorted last, and ${mediaSkipped} were media (DVDs, books, games) which are never candidates. ` +
+        `growingCategories lists where the genuine risers sit — feed those ids straight into a UK sweep.`,
       tokensLeft: uk.tokensLeft ?? us.tokensLeft,
     });
   } catch (error) {

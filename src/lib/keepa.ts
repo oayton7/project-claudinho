@@ -671,8 +671,14 @@ export async function findUsRisers(filters: RiserFilters = {}): Promise<{
   // hold. Worse means numerically larger, because rank is inverted.
   const yearFloor = Math.round(currentCeiling * growth);
 
-  const currentFloor = filters.minCurrentRank ?? 500;
-  const yearCeiling = filters.maxAvg365Rank ?? 200000;
+  // The windows are narrow on purpose, and the arithmetic is the reason.
+  // Growth is avg365 divided by current, so the widest possible ratio is the
+  // year ceiling over the current floor. At 200,000 over 500 that was 400x,
+  // which is why launches kept filling the page even after they were flagged.
+  // At 60,000 over 2,000 the worst case is 30x, and anything above 10x is
+  // treated as a launch in the route.
+  const currentFloor = filters.minCurrentRank ?? 2000;
+  const yearCeiling = filters.maxAvg365Rank ?? 60000;
 
   const selection: Record<string, unknown> = {
     productType: [0, 1],
