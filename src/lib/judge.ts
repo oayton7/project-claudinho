@@ -631,3 +631,101 @@ Star ratings these came from: ${input.starFilter || "not recorded"}
 
 ${input.rawText.slice(0, 60000)}`;
 }
+
+/**
+ * A scout candidate, expressed as something the Judge can read.
+ *
+ * This is Break 2 from the build brief: the deepest and most useful part of
+ * the tool was also the only part unreachable from the rest of it, because
+ * `buildJudgePrompt` wanted a form Oscar filled in by hand. Everything the
+ * form asked for is either already on the candidate or genuinely unknowable
+ * from Keepa, and the difference between those two matters.
+ *
+ * The three fields Keepa cannot supply are left explicitly empty rather than
+ * filled with something plausible. A Judge told "no listing notes" reasons
+ * differently from one told "the listing is fine" — inventing the second is
+ * how a tool becomes confidently wrong.
+ */
+export function candidateToProductInput(c: {
+  asin: string;
+  title: string | null;
+  brand: string | null;
+  category: string;
+  price: number | null;
+  packageWeightG: number | null;
+  rating: number | null;
+  reviewCount: number | null;
+  unhappyBuyers: number | null;
+  monthlySold: number | null;
+  sellers: number | null;
+  maxLandedCost: number | null;
+  listingWeaknesses: string[];
+  hasAplus?: boolean | null;
+  videoCount?: number | null;
+  us?: { growing: boolean | null } | null;
+  reviewText?: string | null;
+}): { input: ProductInput; missing: string[] } {
+  const missing: string[] = [];
+
+  // What the incumbent's listing looks like, in the Judge's own terms. These
+  // are counted facts rather than an opinion, which is the point: the Judge
+  // supplies the opinion.
+  const listingNotes = [
+    c.listingWeaknesses.length > 0
+      ? `Weaknesses counted on their listing: ${c.listingWeaknesses.join("; ")}.`
+      : "Nothing obviously wrong with their listing on the countable measures.",
+    c.hasAplus === false ? "No A+ content." : c.hasAplus ? "Has A+ content." : "",
+    c.videoCount === 0
+      ? "No video."
+      : c.videoCount
+        ? `${c.videoCount} video(s).`
+        : "",
+    "Nobody has looked at the photographs or the copy itself — these are counts, not a read of quality.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  if (!c.reviewText) {
+    missing.push(
+      "Review text. Keepa gives a rating and a count, never the words, so what buyers actually complain about is unknown here.",
+    );
+  }
+  if (c.hasAplus === null || c.hasAplus === undefined) {
+    missing.push("Whether the listing has A+ content.");
+  }
+  if (c.maxLandedCost === null) missing.push("A landed-cost ceiling, because there is no price.");
+
+  const competitorNotes = [
+    c.sellers !== null ? `${c.sellers} seller(s) on the listing.` : "",
+    c.monthlySold !== null ? `About ${c.monthlySold} sold in the past month.` : "",
+    c.maxLandedCost !== null
+      ? `To clear 15% net at £${(c.price ?? 0).toFixed(2)}, a unit would have to land for £${c.maxLandedCost.toFixed(2)} including freight, duty and prep.`
+      : "",
+    c.rating !== null && c.reviewCount !== null
+      ? `Rated ${c.rating} across ${c.reviewCount} reviews${c.unhappyBuyers ? `, which is roughly ${c.unhappyBuyers} buyers who wanted better` : ""}.`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return {
+    input: {
+      name: c.title ?? c.asin,
+      asin: c.asin,
+      category: c.category,
+      sellPrice: c.price ?? 0,
+      weightGrams: c.packageWeightG ?? 0,
+      listingNotes,
+      // Never invented. An empty string means nobody has read the reviews.
+      reviewComplaints: c.reviewText ?? "",
+      competitorNotes,
+      usSignal:
+        c.us?.growing === true
+          ? "rising"
+          : c.us?.growing === false
+            ? "flat"
+            : "unchecked",
+    },
+    missing,
+  };
+}

@@ -455,3 +455,39 @@ export async function listShortlist(
       (b.score ?? 0) - (a.score ?? 0),
   );
 }
+
+
+export async function getCandidate(asin: string): Promise<ScoutCandidateRow | null> {
+  const db = getDb();
+  const { data, error } = await db
+    .from("scout_candidates")
+    .select("*")
+    .eq("asin", asin)
+    .maybeSingle();
+  if (error) throw new Error(`Could not load ${asin}: ${error.message}`);
+  return (data as ScoutCandidateRow) ?? null;
+}
+
+/**
+ * The expensive opinion, stored so it is bought once.
+ *
+ * Written to its own columns, like every other stage, so a re-sweep refreshing
+ * the cheap facts cannot wipe a judgement that cost 10p and ninety seconds.
+ */
+export async function saveDeepJudgement(
+  asin: string,
+  patch: {
+    judge_verdict: string;
+    judge_summary: string;
+    judge_json: unknown;
+    judge_pence: number;
+    judge_missing: string;
+  },
+) {
+  const db = getDb();
+  const { error } = await db
+    .from("scout_candidates")
+    .update({ ...patch, judge_at: new Date().toISOString() })
+    .eq("asin", asin);
+  if (error) throw new Error(`Could not save the judgement: ${error.message}`);
+}
