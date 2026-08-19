@@ -13,6 +13,7 @@
  * can see what.
  */
 import { createClient } from "@supabase/supabase-js";
+import { isMedia } from "./exclusions";
 import type { Judgement, Premortem, ProductInput } from "./judge";
 import type { MarginInput } from "./margin";
 import type { ProductRow, Stage } from "./stages";
@@ -455,7 +456,22 @@ export async function listShortlist(
   const { data, error } = await query;
   if (error) throw new Error(`Could not load the shortlist: ${error.message}`);
 
-  const rows = (data ?? []) as ScoutCandidateRow[];
+  let rows = (data ?? []) as ScoutCandidateRow[];
+
+  // Apply the exclusions on the way out as well as at discovery.
+  //
+  // Rules change after rows are already in the table. Mains electrical was
+  // ruled out after a USB-C charger had been judged, and it kept appearing as
+  // a TEST because exclusions only filtered new work. A shortlist that shows
+  // products the rules now reject is worse than one that never found them:
+  // it looks like the rules are not working.
+  //
+  // Filtered rather than deleted. The row is evidence about what the tool
+  // used to think, and the point of accumulating hundreds is being able to ask
+  // that later.
+  rows = rows.filter(
+    (r) => !isMedia({ categoryTree: [{ name: r.category }] }),
+  );
 
   // Collapse siblings on the way out, not just on the way in.
   //
@@ -465,7 +481,15 @@ export async function listShortlist(
   // Highest score wins, since that is the variation worth looking at.
   const byParent = new Map<string, ScoutCandidateRow>();
   for (const row of rows) {
-    const key = row.parent_asin ?? row.asin;
+    // Rows saved before parent_asin existed have none, so fall back to the
+    // title. Three sizes of one product share a title up to the size, and
+    // matching on the first several words collapses them where the parent
+    // cannot. Crude, and better than showing the same kit three times.
+    const key =
+      row.parent_asin ??
+      (row.title
+        ? `${row.brand ?? ""}|${row.title.split(/[,|(]/)[0].trim().slice(0, 40).toLowerCase()}`
+        : row.asin);
     const held = byParent.get(key);
     if (!held || (row.score ?? 0) > (held.score ?? 0)) byParent.set(key, row);
   }
