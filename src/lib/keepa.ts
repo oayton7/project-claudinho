@@ -628,6 +628,12 @@ export async function bestSellers(
 export type RiserFilters = {
   /** 1.5 means "climbed at least 50% over the year", which is Oscar's ask. */
   minGrowth?: number;
+  /**
+   * The other end of the band. Past this a product was not growing, it was
+   * being born: a year's average six times worse than today generally means
+   * the listing spent most of it unranked.
+   */
+  maxGrowth?: number;
   /** Rank today. Lower is better, so this is the ceiling on how good it is now. */
   maxCurrentRank?: number;
   /**
@@ -659,6 +665,7 @@ export async function findUsRisers(filters: RiserFilters = {}): Promise<{
   currentFloor: number;
   yearFloor: number;
   yearCeiling: number;
+  maxGrowth: number;
   totalMatches: number | null;
   tokensLeft: number | null;
 }> {
@@ -666,19 +673,29 @@ export async function findUsRisers(filters: RiserFilters = {}): Promise<{
   checkRate();
 
   const growth = filters.minGrowth ?? 1.5;
-  const currentCeiling = filters.maxCurrentRank ?? 20000;
-  // The year's average must be this much worse than today for the ratio to
-  // hold. Worse means numerically larger, because rank is inverted.
-  const yearFloor = Math.round(currentCeiling * growth);
+  const maxGrowth = filters.maxGrowth ?? 6;
 
-  // The windows are narrow on purpose, and the arithmetic is the reason.
-  // Growth is avg365 divided by current, so the widest possible ratio is the
-  // year ceiling over the current floor. At 200,000 over 500 that was 400x,
-  // which is why launches kept filling the page even after they were flagged.
-  // At 60,000 over 2,000 the worst case is 30x, and anything above 10x is
-  // treated as a launch in the route.
-  const currentFloor = filters.minCurrentRank ?? 2000;
-  const yearCeiling = filters.maxAvg365Rank ?? 60000;
+  // Keepa cannot express "avg365 divided by current is between 1.5 and 6" —
+  // it only takes absolute bounds on each. So the ratio is enforced by
+  // choosing windows whose arithmetic cannot produce anything outside it.
+  //
+  // With today's rank in [lo, hi], the smallest possible ratio comes from the
+  // best current rank against the mildest year average, and the largest from
+  // the worst current rank against the harshest. Deriving the year window from
+  // the current window makes every result land inside the band by
+  // construction:
+  //
+  //   year floor    = worst current rank x minimum growth
+  //   year ceiling  = best current rank  x maximum growth
+  //
+  // Three earlier attempts widened or narrowed these independently and every
+  // one produced the same failure — the search sorts by best current rank,
+  // which maximises the ratio, so the page filled with launches whatever the
+  // absolute numbers were.
+  const currentFloor = filters.minCurrentRank ?? 10000;
+  const currentCeiling = filters.maxCurrentRank ?? 20000;
+  const yearFloor = Math.round(currentCeiling * growth);
+  const yearCeiling = Math.round(currentFloor * maxGrowth);
 
   const selection: Record<string, unknown> = {
     productType: [0, 1],
@@ -720,6 +737,7 @@ export async function findUsRisers(filters: RiserFilters = {}): Promise<{
     currentFloor,
     yearFloor,
     yearCeiling,
+    maxGrowth,
     totalMatches: typeof raw.totalResults === "number" ? raw.totalResults : null,
     tokensLeft: typeof raw.tokensLeft === "number" ? raw.tokensLeft : null,
   };

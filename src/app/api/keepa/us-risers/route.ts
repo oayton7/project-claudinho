@@ -109,8 +109,8 @@ export async function POST(request: Request) {
       // attempt at tightening the window changed keepa.ts and left 500 and
       // 200,000 here, so nothing moved and the output still said 500–200000
       // while the code claimed otherwise.
-      minCurrentRank: num("minCurrentRank", 2000),
-      maxAvg365Rank: num("maxAvg365Rank", 60000),
+      minCurrentRank: num("minCurrentRank", 10000),
+      maxGrowth: num("maxGrowth", 6),
       minPrice: num("minPrice", 10),
       maxPrice: num("maxPrice", 60),
       limit,
@@ -268,8 +268,9 @@ export async function POST(request: Request) {
         grownBy: `${Math.round((minGrowth - 1) * 100)}% or more over the year`,
         rankTodayBetween: `${risers.currentFloor}–${risers.currentCeiling}`,
         yearAverageBetween: `${risers.yearFloor}–${risers.yearCeiling}`,
-        whyBothEnds:
-          "Bounded at both ends so the search finds products that were ranked all year and improved, rather than products that were unranked a year ago. Without the upper bound on the year's average, every result is a launch.",
+        growthBand: `${minGrowth}x to ${risers.maxGrowth}x`,
+        whyDerived:
+          "The year window is derived from the current window so the growth ratio cannot fall outside the band. Keepa takes absolute bounds, not ratios, and the search sorts by best current rank — which maximises the ratio — so absolute bounds alone fill the page with launches however they are set.",
         totalUsMatches: risers.totalMatches,
       },
       alreadyHere: alreadyHere.sort(sortByGrowth),
