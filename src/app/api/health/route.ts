@@ -42,7 +42,15 @@ export async function GET() {
     .filter((k) => k.toUpperCase().includes("SUPABASE") || k.toUpperCase().includes("POSTGRES"))
     .sort();
 
+  const watchdog = process.env.WATCHDOG_SECRET?.trim();
+
   return Response.json({
+    watchdog: {
+      configured: Boolean(watchdog),
+      note: watchdog
+        ? "A run can be advanced without a browser. Set the same value as a GitHub Actions secret named WATCHDOG_SECRET, alongside SITE_URL."
+        : "Not set. Runs can only be advanced from a signed-in browser, so nothing progresses unattended. Add WATCHDOG_SECRET in Vercel and redeploy.",
+    },
     siteGate: (() => {
       const raw = process.env.SITE_PASSWORD;
       if (!raw) {

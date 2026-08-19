@@ -17,6 +17,22 @@ export async function middleware(request: NextRequest) {
   // visible mistake rather than a silent lockout.
   if (!password) return NextResponse.next();
 
+  // The watchdog has no browser and therefore no cookie. It presents a shared
+  // secret instead, and only for the one endpoint that advances a queued run
+  // — everything else stays behind the password.
+  //
+  // Scoped to that path deliberately. A secret that opens the whole site is a
+  // second password with none of the care, and this one lives in a GitHub
+  // Actions variable rather than in anyone's head.
+  const watchdogSecret = process.env.WATCHDOG_SECRET?.trim();
+  if (
+    watchdogSecret &&
+    request.nextUrl.pathname === "/api/pipeline/tick" &&
+    request.headers.get("x-watchdog-secret") === watchdogSecret
+  ) {
+    return NextResponse.next();
+  }
+
   const cookie = request.cookies.get(COOKIE_NAME)?.value;
   const expected = await tokenFor(password);
 
