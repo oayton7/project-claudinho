@@ -63,11 +63,19 @@ const MAX_PLAUSIBLE_GROWTH = 10;
  * Keepa's productGroup is one field and the category tree is thousands.
  */
 const NEVER_CANDIDATES = [
+  // Media. Rank here is spiky — a re-release or a film anniversary moves a
+  // catalogue title thousands of places in a week, which is real movement and
+  // useless: you cannot private-label a DVD.
   "dvd",
+  "video",
+  "movie",
   "book",
   "abis_book",
   "music",
+  "abis_music",
   "digital_music",
+  "vinyl",
+  "cd_",
   "video_games",
   "videogames",
   "software",
@@ -75,14 +83,75 @@ const NEVER_CANDIDATES = [
   "ebooks",
   "digital_video_download",
   "toy_figure",
+  // Apparel and footwear. Already a Gate 0 kill in the rubric: returns cost
+  // 50% of the fulfilment fee, and sizing drives the return rate up in the
+  // first place. A growing trouser is still a trouser.
+  "apparel",
+  "shoes",
+  "pants",
+  "shirt",
+  "sweater",
+  "pullover",
+  "dress",
+  "jacket",
+  "coat",
+  "hoodie",
+  "sock",
+  "underwear",
+  "swimwear",
+  "hat",
+  "jewelry",
+  "watch",
+];
+
+/**
+ * Whole categories that are never candidates, matched on the category tree
+ * rather than the product's own fields.
+ *
+ * Needed because productGroup is unreliable across types: a vinyl LP came back
+ * clean on productGroup and binding while sitting in "Album-Oriented Rock".
+ * Two imperfect checks catch more than one perfect-looking one.
+ */
+const NEVER_CATEGORIES = [
+  "rock",
+  "pop",
+  "jazz",
+  "classical",
+  "country",
+  "hip hop",
+  "soundtrack",
+  "album",
+  "movies",
+  "tv",
+  "books",
+  "kindle",
+  "clothing",
+  "shoes",
+  "jewel",
+  "watches",
+  "men",
+  "women",
+  "girls",
+  "boys",
+  "baby",
 ];
 
 function isMedia(product: Record<string, unknown>): boolean {
   const group = String(product.productGroup ?? "").toLowerCase();
   const binding = String(product.binding ?? "").toLowerCase();
-  return NEVER_CANDIDATES.some(
-    (bad) => group.includes(bad) || binding.includes(bad),
-  );
+  if (NEVER_CANDIDATES.some((bad) => group.includes(bad) || binding.includes(bad))) {
+    return true;
+  }
+
+  // Second pass on the category tree. A vinyl LP passed the field check and
+  // was sitting in "Album-Oriented Rock", so the tree catches what the
+  // product's own fields do not.
+  const tree = (product.categoryTree ?? []) as { name?: string }[];
+  if (!Array.isArray(tree)) return false;
+  return tree.some((node) => {
+    const name = String(node?.name ?? "").toLowerCase();
+    return NEVER_CATEGORIES.some((bad) => name === bad || name.includes(bad));
+  });
 }
 
 export async function POST(request: Request) {
