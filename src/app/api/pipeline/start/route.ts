@@ -1,4 +1,3 @@
-import { after } from "next/server";
 import { createRun, listRuns } from "@/lib/db";
 import { describeError } from "@/lib/claude";
 
@@ -16,29 +15,17 @@ export async function POST(request: Request) {
 
     const run = await createRun(params, capPence);
 
-    // Kick the first tick after this response is sent. An un-awaited fetch
-    // would be killed the moment the function returns, which is how the first
-    // version queued runs that never started.
-    after(async () => {
-      try {
-        await fetch(new URL("/api/pipeline/tick", request.url), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            cookie: request.headers.get("cookie") ?? "",
-          },
-          body: JSON.stringify({ runId: run.id }),
-        });
-      } catch {
-        // The watchdog picks up anything that never started.
-      }
-    });
+    // Deliberately not started here. Kicking it from this request would put
+    // the work back inside a request, which is what the job architecture
+    // exists to avoid — and the two attempts at doing it over HTTP both died
+    // silently. The run is queued; the watchdog picks it up, and /runs has a
+    // button for starting it now.
 
     return Response.json({
       run: run.id,
       status: run.status,
       capPence,
-      note: "Queued. It walks itself forward from here — close the tab if you like.",
+      note: "Queued. Press Work the queue on /runs to start it now, or leave it for the watchdog.",
     });
   } catch (error) {
     return Response.json({ error: describeError(error) }, { status: 502 });

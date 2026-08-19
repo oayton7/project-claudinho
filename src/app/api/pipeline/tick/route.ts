@@ -1,4 +1,3 @@
-import { after } from "next/server";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import {
   KEEPA_DOMAIN,
@@ -61,43 +60,17 @@ export const maxDuration = 300;
 const TRIAGE_PER_TICK = 5;
 
 /**
- * Hand off to the next slice, after this response has been sent.
+ * How long one invocation keeps working before handing back.
  *
- * The first version fired an un-awaited fetch and the chain died after two
- * ticks. Vercel freezes a serverless function the moment it returns, so
- * anything still in flight is killed — the request was never made, no error
- * was raised, and the run simply stopped with its status still saying
- * "sweeping". Exactly the invisible failure this project keeps meeting.
- *
- * `after` is the supported way to keep work alive past the response: the
- * platform holds the function open for it. Still not awaited inside the
- * handler, because waiting for the next slice would rebuild the one long
- * request this whole design exists to avoid.
+ * Vercel kills the function at 300 seconds, so this stops well short and
+ * returns cleanly rather than being cut off mid-slice.
  */
-function fireNextTick(request: Request, runId: string) {
-  const url = new URL("/api/pipeline/tick", request.url);
-  after(async () => {
-    try {
-      await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          cookie: request.headers.get("cookie") ?? "",
-        },
-        body: JSON.stringify({ runId }),
-      });
-    } catch {
-      // A lost hand-off is what the watchdog is for. Failing loudly here would
-      // mark a run failed when it is merely paused.
-    }
-  });
-}
+const TIME_BUDGET_MS = 230_000;
 
-export async function POST(request: Request) {
+async function doOneSlice(request: Request, runId?: string) {
   let run: RunRow | null = null;
   try {
-    const body = (await request.json().catch(() => ({}))) as { runId?: string };
-    run = body.runId ? await getRun(body.runId) : await nextRunnable();
+    run = runId ? await getRun(runId) : await nextRunnable();
   } catch (error) {
     return Response.json({ error: describeError(error) }, { status: 502 });
   }
@@ -196,7 +169,6 @@ export async function POST(request: Request) {
         stage_detail: `${categories.length} categories to sweep`,
         keepa_tokens_left: tokensLeft,
       });
-      fireNextTick(request, run.id);
       return Response.json({ run: run.id, status: "sweeping", categories: categories.map((c) => c.name) });
     }
 
@@ -231,7 +203,6 @@ export async function POST(request: Request) {
           triage_cursor: 0,
           stage_detail: queue.length > 0 ? `${queue.length} to judge` : "nothing survived to judge",
         });
-        if (queue.length > 0) fireNextTick(request, run.id);
         return Response.json({ run: run.id, status: queue.length > 0 ? "triaging" : "done", queued: queue.length });
       }
 
@@ -306,7 +277,6 @@ export async function POST(request: Request) {
       }
 
       await updateRun(run.id, { category_cursor: run.category_cursor + 1 });
-      fireNextTick(request, run.id);
       return Response.json({ run: run.id, status: "sweeping", category: category.name, found });
     }
 
@@ -407,8 +377,7 @@ export async function POST(request: Request) {
         stage_detail: finished ? "finished" : `${run.triage_queue.length - cursor} left to judge`,
       });
 
-      if (!finished) fireNextTick(request, run.id);
-      return Response.json({
+      if (!finished) return Response.json({
         run: run.id,
         status: finished ? "done" : "triaging",
         judgedThisTick: slice.length,
@@ -423,4 +392,51 @@ export async function POST(request: Request) {
     }
     return Response.json({ error: describeError(error) }, { status: 502 });
   }
+}
+
+
+/**
+ * POST /api/pipeline/tick
+ *
+ * Works one run forward for as long as it safely can, then hands back.
+ *
+ * The first two designs had each slice call the next over HTTP — an unawaited
+ * fetch, then `after`. Both died after a handful of slices: a run would sit at
+ * "sweeping Aprons" with three of twelve categories done and nothing wrong in
+ * any log. Calling yourself over HTTP on a serverless platform turns out to be
+ * the unreliable part, and every failure was silent, which is the worst kind.
+ *
+ * So there is no chain. One invocation loops over slices, committing each
+ * before starting the next, until the run finishes or the time budget is
+ * nearly spent. The watchdog then starts a fresh invocation for whatever is
+ * left, which is the same mechanism that recovers a crash — one path rather
+ * than two, and the recovery path is exercised on every long run rather than
+ * only in emergencies.
+ *
+ * What made the chain worth trying is preserved: each slice still commits
+ * before the next begins, so nothing is ever re-paid.
+ */
+export async function POST(request: Request) {
+  const body = (await request.json().catch(() => ({}))) as { runId?: string };
+  const started = Date.now();
+  const slices: unknown[] = [];
+
+  for (let i = 0; i < 60; i += 1) {
+    if (Date.now() - started > TIME_BUDGET_MS) {
+      return Response.json({
+        slices,
+        handedBack: true,
+        note: "Time budget reached. The run is committed where it got to; the next invocation carries on.",
+      });
+    }
+
+    const response = await doOneSlice(request, body.runId);
+    const result = (await response.json()) as Record<string, unknown>;
+    slices.push(result);
+
+    if (result.idle || result.error) break;
+    if (["done", "failed", "halted"].includes(String(result.status))) break;
+  }
+
+  return Response.json({ slices, seconds: Math.round((Date.now() - started) / 1000) });
 }

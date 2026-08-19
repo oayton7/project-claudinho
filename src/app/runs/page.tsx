@@ -36,6 +36,34 @@ export default function RunsPage() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [error, setError] = useState("");
   const [starting, setStarting] = useState(false);
+  const [working, setWorking] = useState(false);
+
+  /**
+   * Work whatever is queued.
+   *
+   * A run no longer starts itself. Two attempts at having each slice call the
+   * next over HTTP both died silently mid-run, so one invocation now does as
+   * many slices as it can and the next invocation picks up the rest — which is
+   * either this button or the watchdog.
+   */
+  async function work() {
+    setWorking(true);
+    setError("");
+    try {
+      const response = await fetch("/api/pipeline/tick", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const data = await response.json();
+      if (data.error) setError(data.error);
+      await load();
+    } catch {
+      setError("Could not reach the server.");
+    } finally {
+      setWorking(false);
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -120,9 +148,17 @@ export default function RunsPage() {
           >
             {starting ? "Queueing…" : "Start a run"}
           </button>
-          {active.length > 0 && (
+          <button
+            onClick={() => void work()}
+            disabled={working || active.length === 0}
+            className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-200"
+          >
+            {working ? "Working…" : `Work the queue${active.length ? ` (${active.length})` : ""}`}
+          </button>
+          {active.length > 0 && !working && (
             <span className="text-xs text-zinc-500">
-              One is already running. Let it finish first.
+              {active.length} waiting. This runs for about four minutes, then
+              hands back.
             </span>
           )}
           <Link href="/shortlist" className="ml-auto text-sm underline">
