@@ -23,6 +23,7 @@ import {
   updateRun,
   type RunRow,
 } from "@/lib/db";
+import { KeepaTokensExhausted } from "@/lib/keepa";
 import {
   TRIAGE_MODEL,
   describeError,
@@ -393,10 +394,32 @@ async function doOneSlice(request: Request, runId?: string) {
 
     return Response.json({ run: run.id, status: run.status, note: "Nothing to do for this status." });
   } catch (error) {
+    const message = describeError(error);
+
+    // Running out of Keepa tokens is a wait, not a failure. The bucket refills
+    // at twenty a minute, so the run is fine — it simply cannot proceed this
+    // minute. Marking it failed would have an unattended pipeline kill itself
+    // the first time it got ahead of the refill rate, which is the normal
+    // state of a pipeline working hard.
+    const isRateLimit =
+      error instanceof KeepaTokensExhausted ||
+      /429|token/i.test(message);
+
     if (run) {
-      await updateRun(run.id, { status: "failed", error: describeError(error) }).catch(() => {});
+      await updateRun(run.id, {
+        // Left in whatever stage it reached, so the next invocation resumes
+        // rather than restarts. queued is the right resting place for a run
+        // that had not started.
+        status: isRateLimit ? (run.status === "queued" ? "queued" : run.status) : "failed",
+        stage_detail: isRateLimit ? "waiting for Keepa tokens" : run.stage_detail,
+        error: message,
+      }).catch(() => {});
     }
-    return Response.json({ error: describeError(error) }, { status: 502 });
+
+    return Response.json(
+      { error: message, waiting: isRateLimit },
+      { status: isRateLimit ? 200 : 502 },
+    );
   }
 }
 
@@ -440,7 +463,9 @@ export async function POST(request: Request) {
     const result = (await response.json()) as Record<string, unknown>;
     slices.push(result);
 
-    if (result.idle || result.error) break;
+    // A rate limit ends this invocation rather than spinning against it. The
+    // next one, minutes later, finds tokens waiting.
+    if (result.idle || result.error || result.waiting) break;
     if (["done", "failed", "halted"].includes(String(result.status))) break;
   }
 
