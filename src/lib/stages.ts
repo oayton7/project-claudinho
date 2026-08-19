@@ -53,3 +53,48 @@ export type ProductRow = {
   /** Present on list queries via the join in listProducts. */
   judgements?: { verdict: string; summary: string; created_at: string }[];
 };
+
+
+/**
+ * Re-exported for pages. Client components must not import db.ts, because that
+ * would pull the service-role key into the browser bundle.
+ */
+export type ScoutCandidateRow = {
+  asin: string;
+  first_seen: string;
+  last_seen: string;
+  title: string;
+  brand: string;
+  category: string;
+  price: number | null;
+  rating: number | null;
+  review_count: number | null;
+  unhappy_buyers: number | null;
+  monthly_sold: number | null;
+  sellers: number | null;
+  weight_grams: number | null;
+  max_landed_cost: number | null;
+  score: number | null;
+  coverage: number | null;
+  strengths: string;
+  listing_weaknesses: string;
+  killed_reason: string | null;
+  us_growing: boolean | null;
+  us_monthly_sold: number | null;
+  auto_verdict: "TEST" | "PARK" | "KILL" | null;
+  auto_because: string;
+  triage_verdict: "TEST" | "PARK" | "KILL" | null;
+  triage_because: string | null;
+  triage_improvability: number | null;
+  triage_main_risk: string | null;
+  triage_at: string | null;
+  us_avg365_rank: number | null;
+  us_current_rank: number | null;
+  us_growth_ratio: number | null;
+  found_via: string | null;
+  has_aplus: boolean | null;
+  video_count: number | null;
+  dismissed: boolean;
+  my_notes: string;
+  promoted_product_id: string | null;
+};

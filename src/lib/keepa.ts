@@ -590,3 +590,89 @@ export async function bestSellers(
     tokensLeft: typeof raw.tokensLeft === "number" ? raw.tokensLeft : null,
   };
 }
+
+// ── US risers (flipping the funnel) ────────────────────────────────────────
+//
+// Searching UK categories and hoping is the weaker end of the telescope. This
+// starts where trends start: products whose Amazon US sales rank has climbed
+// hard over a year, then works back to whether the UK has noticed.
+//
+// The mechanism is a ratio, not a delta field. A trend probe on 18 Aug 2026
+// established that Keepa has no 365-day delta — deltaPercent365_SALES,
+// delta365_SALES and trendPercent365_SALES are all silently ignored, returning
+// an unfiltered result that looks like a working search. What does exist is
+// avg365_SALES and current_SALES, and the ratio between them is the growth:
+// an average rank of 60,000 over the year against 20,000 today is a product
+// that has tripled its position.
+//
+// Silently ignored is the important half of that finding. An unknown key does
+// not error, so any filter never tested against a control may be doing
+// nothing at all.
+
+export type RiserFilters = {
+  /** 1.5 means "climbed at least 50% over the year", which is Oscar's ask. */
+  minGrowth?: number;
+  /** Rank today. Lower is better, so this is the ceiling on how good it is now. */
+  maxCurrentRank?: number;
+  minPrice?: number;
+  maxPrice?: number;
+  limit?: number;
+};
+
+export async function findUsRisers(filters: RiserFilters = {}): Promise<{
+  asins: string[];
+  growth: number;
+  currentCeiling: number;
+  yearFloor: number;
+  totalMatches: number | null;
+  tokensLeft: number | null;
+}> {
+  const key = getKey();
+  checkRate();
+
+  const growth = filters.minGrowth ?? 1.5;
+  const currentCeiling = filters.maxCurrentRank ?? 20000;
+  // The year's average must be this much worse than today for the ratio to
+  // hold. Worse means numerically larger, because rank is inverted.
+  const yearFloor = Math.round(currentCeiling * growth);
+
+  const selection: Record<string, unknown> = {
+    productType: [0, 1],
+    perPage: KEEPA_MIN_PER_PAGE,
+    page: 0,
+    sort: [["current_SALES", "asc"]],
+    current_SALES_lte: currentCeiling,
+    avg365_SALES_gte: yearFloor,
+  };
+  if (filters.minPrice !== undefined)
+    selection.current_NEW_gte = Math.round(filters.minPrice * 100);
+  if (filters.maxPrice !== undefined)
+    selection.current_NEW_lte = Math.round(filters.maxPrice * 100);
+
+  const response = await fetch(
+    `https://api.keepa.com/query?key=${key}&domain=${KEEPA_DOMAIN.US}&selection=${encodeURIComponent(
+      JSON.stringify(selection),
+    )}`,
+    { signal: AbortSignal.timeout(30_000) },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Keepa US riser search returned ${response.status}. ${await response
+        .text()
+        .catch(() => "")}`.trim(),
+    );
+  }
+
+  const raw = (await response.json()) as Record<string, unknown>;
+  const asins = Array.isArray(raw.asinList) ? (raw.asinList as string[]) : [];
+
+  return {
+    asins: filters.limit ? asins.slice(0, filters.limit) : asins,
+    growth,
+    currentCeiling,
+    yearFloor,
+    totalMatches: typeof raw.totalResults === "number" ? raw.totalResults : null,
+    tokensLeft: typeof raw.tokensLeft === "number" ? raw.tokensLeft : null,
+  };
+}

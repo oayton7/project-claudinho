@@ -185,15 +185,52 @@ export type ScoutCandidateRow = {
   us_monthly_sold: number | null;
   auto_verdict: "TEST" | "PARK" | "KILL" | null;
   auto_because: string;
+  triage_verdict: "TEST" | "PARK" | "KILL" | null;
+  triage_because: string | null;
+  triage_improvability: number | null;
+  triage_main_risk: string | null;
+  triage_at: string | null;
+  us_avg365_rank: number | null;
+  us_current_rank: number | null;
+  us_growth_ratio: number | null;
+  found_via: string | null;
+  has_aplus: boolean | null;
+  video_count: number | null;
   dismissed: boolean;
   my_notes: string;
   promoted_product_id: string | null;
 };
 
+/**
+ * What the sweep writes. Every later stage's columns are optional, because a
+ * re-sweep must refresh the cheap facts without wiping an expensive opinion —
+ * each stage owns its own columns and touches nothing else.
+ */
 export type ScoutCandidateInput = Omit<
   ScoutCandidateRow,
-  "first_seen" | "last_seen" | "dismissed" | "my_notes" | "promoted_product_id"
->;
+  | "first_seen"
+  | "last_seen"
+  | "dismissed"
+  | "my_notes"
+  | "promoted_product_id"
+  | "triage_verdict"
+  | "triage_because"
+  | "triage_improvability"
+  | "triage_main_risk"
+  | "triage_at"
+  | "us_avg365_rank"
+  | "us_current_rank"
+  | "us_growth_ratio"
+  | "found_via"
+  | "has_aplus"
+  | "video_count"
+> &
+  Partial<
+    Pick<
+      ScoutCandidateRow,
+      "us_avg365_rank" | "us_current_rank" | "us_growth_ratio" | "found_via" | "has_aplus" | "video_count"
+    >
+  >;
 
 export async function saveScoutCandidates(candidates: ScoutCandidateInput[]) {
   if (candidates.length === 0) return { saved: 0 };
@@ -356,4 +393,65 @@ export async function setCategoryPick(
     .from("category_picks")
     .upsert({ cat_id: catId, name }, { onConflict: "cat_id" });
   if (error) throw new Error(`Could not pick: ${error.message}`);
+}
+
+
+/**
+ * Writes a triage verdict onto an existing candidate.
+ *
+ * Separate from saveScoutCandidates because the two happen at different times
+ * and cost different amounts. A re-sweep should refresh the cheap facts
+ * without wiping an expensive opinion, so each stage writes only its own
+ * columns.
+ */
+export async function saveTriageVerdict(
+  asin: string,
+  verdict: {
+    triage_verdict: "TEST" | "PARK" | "KILL";
+    triage_because: string;
+    triage_improvability: number | null;
+    triage_main_risk: string | null;
+  },
+) {
+  const db = getDb();
+  const { error } = await db
+    .from("scout_candidates")
+    .update({ ...verdict, triage_at: new Date().toISOString() })
+    .eq("asin", asin);
+  if (error) throw new Error(`Could not save verdict for ${asin}: ${error.message}`);
+}
+
+/**
+ * The shortlist: what survived, ranked, with the reasoning attached.
+ *
+ * TEST first because those are the ones to act on, then PARK, because "why did
+ * you park this" is a question worth being able to answer. KILL is excluded by
+ * default but kept in the table — the point of 500 rows is being able to ask
+ * later which signals actually predicted anything.
+ */
+export async function listShortlist(
+  options: { includeKilled?: boolean } = {},
+): Promise<ScoutCandidateRow[]> {
+  const db = getDb();
+  let query = db
+    .from("scout_candidates")
+    .select("*")
+    .eq("dismissed", false)
+    .order("score", { ascending: false, nullsFirst: false })
+    .limit(300);
+
+  if (!options.includeKilled) {
+    query = query.in("triage_verdict", ["TEST", "PARK"]);
+  }
+
+  const { data, error } = await query;
+  if (error) throw new Error(`Could not load the shortlist: ${error.message}`);
+
+  const rows = (data ?? []) as ScoutCandidateRow[];
+  const rank = { TEST: 0, PARK: 1, KILL: 2 } as const;
+  return rows.sort(
+    (a, b) =>
+      (rank[a.triage_verdict ?? "KILL"] ?? 3) - (rank[b.triage_verdict ?? "KILL"] ?? 3) ||
+      (b.score ?? 0) - (a.score ?? 0),
+  );
 }

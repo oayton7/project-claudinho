@@ -56,8 +56,14 @@ export default function Home() {
 
         <div className="mt-10 flex flex-wrap gap-3">
           <Link
-            href="/sweep"
+            href="/shortlist"
             className="rounded bg-black px-5 py-2.5 text-sm font-medium text-white dark:bg-zinc-100 dark:text-black"
+          >
+            Shortlist →
+          </Link>
+          <Link
+            href="/sweep"
+            className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
           >
             Sweep →
           </Link>

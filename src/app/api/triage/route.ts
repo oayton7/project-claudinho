@@ -5,6 +5,7 @@ import {
   buildTriagePrompt,
   type Triage,
 } from "@/lib/judge";
+import { saveTriageVerdict } from "@/lib/db";
 import {
   MissingApiKey,
   RateLimited,
@@ -133,10 +134,26 @@ export async function POST(request: Request) {
               continue;
             }
 
+            // Persist before streaming. A verdict that only reaches the
+            // browser is one Oscar pays for again next session, which is the
+            // whole reason the tables now exist.
+            let stored = true;
+            try {
+              await saveTriageVerdict(asin, {
+                triage_verdict: parsed.data.verdict,
+                triage_because: parsed.data.reason,
+                triage_improvability: parsed.data.improvability,
+                triage_main_risk: parsed.data.mainRisk,
+              });
+            } catch {
+              stored = false;
+            }
+
             send(controller, {
               type: "result",
               asin,
               triage: parsed.data satisfies Triage,
+              stored,
               cost,
               // Visible so a broken cache shows up as a cost rise rather than
               // hiding in the total.

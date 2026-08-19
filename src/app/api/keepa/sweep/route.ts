@@ -610,6 +610,11 @@ export async function POST(request: Request) {
               us_monthly_sold: c.us?.monthlySold ?? null,
               auto_verdict: c.verdict,
               auto_because: c.because,
+              // Two flags rather than prose, so they can be counted across
+              // hundreds of rows later.
+              has_aplus: c.hasAplus,
+              video_count: c.videoCount,
+              found_via: pickedCategoryIds.length > 0 ? "uk category" : "seed asin",
             })),
           );
           saved = result.saved;
