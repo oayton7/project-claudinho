@@ -656,10 +656,21 @@ export type RiserFilters = {
   minPrice?: number;
   maxPrice?: number;
   limit?: number;
+  /**
+   * Which page of the result set to take.
+   *
+   * Every run asked for page 0, so every run got the same fifty products and
+   * therefore the same five categories — and once those were swept the tool
+   * reported it had run out of new ground when it had barely started. There
+   * are hundreds of thousands of matches behind the same filters; paging is
+   * how the run reaches them.
+   */
+  page?: number;
 };
 
 export async function findUsRisers(filters: RiserFilters = {}): Promise<{
   asins: string[];
+  page: number;
   growth: number;
   currentCeiling: number;
   currentFloor: number;
@@ -700,7 +711,7 @@ export async function findUsRisers(filters: RiserFilters = {}): Promise<{
   const selection: Record<string, unknown> = {
     productType: [0, 1],
     perPage: KEEPA_MIN_PER_PAGE,
-    page: 0,
+    page: filters.page ?? 0,
     sort: [["current_SALES", "asc"]],
     current_SALES_gte: currentFloor,
     current_SALES_lte: currentCeiling,
@@ -732,6 +743,7 @@ export async function findUsRisers(filters: RiserFilters = {}): Promise<{
 
   return {
     asins: filters.limit ? asins.slice(0, filters.limit) : asins,
+    page: filters.page ?? 0,
     growth,
     currentCeiling,
     currentFloor,

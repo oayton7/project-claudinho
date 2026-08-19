@@ -80,12 +80,28 @@ export async function POST(request: Request) {
         // ── 1. Where is the market moving ────────────────────────────────
         send(controller, { type: "stage", stage: "us-risers", detail: "asking what has grown in the US" });
 
-        const risers = await findUsRisers({
+        // Walk deeper into the result set until something new turns up.
+        //
+        // Page 0 every time is why five categories kept reappearing: the same
+        // fifty products, run after run. There are hundreds of thousands of
+        // matches behind these filters, so when the front of the list is
+        // exhausted the answer is to go further into it rather than to report
+        // that the market has stopped moving.
+        const covered = await alreadyCovered().catch(() => ({
+          asins: new Set<string>(),
+          categories: new Set<string>(),
+        }));
+
+        const startPage = num("page", 0);
+        const maxPages = num("maxPages", 6);
+        let risers = await findUsRisers({
           minGrowth: num("minGrowth", 1.5),
           minPrice: num("minPrice", 10),
           maxPrice: num("maxPrice", 60),
           limit: 30,
+          page: startPage,
         });
+        let pagesTried = 1;
 
         if (risers.asins.length === 0) {
           send(controller, {
@@ -147,22 +163,55 @@ export async function POST(request: Request) {
           else tally.set(leaf.catId, { id: leaf.catId, name: leaf.name, risers: 1 });
         }
 
-        // What has been covered already. The US riser search is fairly stable
-        // week to week, so without this every run re-sweeps the same
-        // categories and re-finds the same products.
-        const covered = await alreadyCovered().catch(() => ({
-          asins: new Set<string>(),
-          categories: new Set<string>(),
-        }));
-
         const ranked = [...tally.values()].sort((a, b) => b.risers - a.risers);
         const unseen = ranked.filter((c) => !covered.categories.has(c.name));
 
         // Fall back to covered ground only if there is nothing new, and say so
         // — "we have run out of new categories" is a finding about the funnel,
         // not a reason to silently repeat.
-        const exhausted = unseen.length === 0;
-        const categories = (exhausted ? ranked : unseen).slice(
+        let workingUnseen = unseen;
+        let workingRanked = ranked;
+
+        while (workingUnseen.length === 0 && pagesTried < maxPages) {
+          send(controller, {
+            type: "stage",
+            stage: "us-risers",
+            detail: `page ${startPage + pagesTried} — the front of the list is ground already covered`,
+          });
+
+          risers = await findUsRisers({
+            minGrowth: num("minGrowth", 1.5),
+            minPrice: num("minPrice", 10),
+            maxPrice: num("maxPrice", 60),
+            limit: 30,
+            page: startPage + pagesTried,
+          });
+          pagesTried += 1;
+          if (risers.asins.length === 0) break;
+
+          const more = await fetchProductRaw(risers.asins.join(","), KEEPA_DOMAIN.UK, {
+            history: false,
+            stats: 0,
+          });
+          const moreUk = ((more.raw as Record<string, unknown>).products ??
+            []) as Record<string, unknown>[];
+
+          const tally2 = new Map<number, { id: number; name: string; risers: number }>();
+          for (const twin of moreUk) {
+            if (isMedia(twin)) continue;
+            const tree = (twin.categoryTree ?? []) as { catId: number; name: string }[];
+            const leaf = Array.isArray(tree) ? tree[tree.length - 1] : null;
+            if (!leaf?.catId) continue;
+            const seen2 = tally2.get(leaf.catId);
+            if (seen2) seen2.risers += 1;
+            else tally2.set(leaf.catId, { id: leaf.catId, name: leaf.name, risers: 1 });
+          }
+          workingRanked = [...tally2.values()].sort((a, b) => b.risers - a.risers);
+          workingUnseen = workingRanked.filter((c) => !covered.categories.has(c.name));
+        }
+
+        const exhausted = workingUnseen.length === 0;
+        const categories = (exhausted ? workingRanked : workingUnseen).slice(
           0,
           num("categoryLimit", CATEGORY_LIMIT),
         );
@@ -171,10 +220,11 @@ export async function POST(request: Request) {
           type: "categories",
           categories,
           skipped,
-          skippedAsAlreadyCovered: ranked.length - unseen.length,
+          pagesTried,
+          skippedAsAlreadyCovered: workingRanked.length - workingUnseen.length,
           exhausted,
           exhaustedNote: exhausted
-            ? "Every category the US risers point at has been swept before. Widen the growth band or the price range to reach new ground."
+            ? `Nothing new after ${pagesTried} page(s) of risers. Widen the growth band or the price range, or raise maxPages.`
             : null,
           note: "UK category ids, read from each riser's UK listing. A US id would find nothing here — the trees are per-marketplace.",
         });
