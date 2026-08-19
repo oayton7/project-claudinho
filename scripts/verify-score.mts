@@ -186,6 +186,11 @@ assert("vinyl by department", isMedia(tree("CDs & Vinyl", "Album-Oriented Rock")
 assert("DVDs, UK naming", isMedia(tree("DVD & Blu-ray", "Action")));
 
 // And the things that must survive, or the filter has eaten the funnel.
+assert("hats, wherever they are filed", isMedia(tree("Sports & Outdoors", "Hats & Caps")));
+assert("gloves outside a clothing department", isMedia(tree("Automotive", "Motorbike Gloves")));
+assert("socks", isMedia(tree("Clothing", "Socks")));
+assert("scarves", isMedia(tree("Accessories", "Scarves & Wraps")));
+
 assert("a wireless charger is fine", !isMedia(tree("Electronics", "Wireless Chargers")));
 assert("a parasol base is fine", !isMedia(tree("Garden & Outdoors", "Parasol Stands & Bases")));
 assert("a kitchen gadget is fine", !isMedia(tree("Home & Kitchen", "Kitchen Tools & Gadgets")));

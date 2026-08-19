@@ -116,6 +116,31 @@ const NEVER_ANYWHERE = [
   "footwear",
   "boots",
   "sandal",
+
+  // Worn accessories. Oscar's addition, and they need naming individually
+  // because they do not sit under a clothing department — hats and gloves are
+  // filed under Sports & Outdoors, Motorbike, Garden and Workwear depending on
+  // the pair. They carry apparel's problems anyway: sizing drives returns, and
+  // returns cost half the fulfilment fee.
+  "hat",
+  "cap",
+  "beanie",
+  "glove",
+  "mitten",
+  // "scarf" does not appear inside "Scarves & Wraps" — the plural is
+  // irregular, so both stems are needed. Worth remembering for any word added
+  // here: these are substring matches against Amazon's own category names,
+  // which are almost always plural.
+  "scarf",
+  "scarv",
+  "belt",
+  "tie",
+  "wallet",
+  "purse",
+  "handbag",
+  "backpack",
+  "sunglasses",
+  "slipper",
 ];
 
 /**
