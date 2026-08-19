@@ -32,11 +32,18 @@ export const maxDuration = 120;
 const SSL = { rejectUnauthorized: false };
 
 function connectionString(): string | null {
-  return (
-    process.env.POSTGRES_URL_NON_POOLING ??
-    process.env.POSTGRES_URL ??
-    null
-  );
+  const raw =
+    process.env.POSTGRES_URL_NON_POOLING ?? process.env.POSTGRES_URL ?? null;
+  if (!raw) return null;
+
+  // Supabase's URL carries sslmode=require, and pg derives its TLS settings
+  // from that in preference to the ssl option passed alongside it — so
+  // rejectUnauthorized never applied and the handshake kept failing on the
+  // certificate chain. Removing the parameter is what lets SSL above take
+  // effect.
+  return raw
+    .replace(/([?&])sslmode=[^&]*&?/g, "$1")
+    .replace(/[?&]$/, "");
 }
 
 const EXPECTED_TABLES = [
