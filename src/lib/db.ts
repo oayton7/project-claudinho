@@ -535,3 +535,84 @@ export async function alreadyCovered(): Promise<{
     categories: new Set(rows.map((r) => r.category).filter(Boolean)),
   };
 }
+
+
+// ── Runs as jobs ───────────────────────────────────────────────────────────
+
+export type RunRow = {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  status: "queued" | "finding" | "sweeping" | "triaging" | "done" | "failed" | "halted";
+  stage_detail: string;
+  params: Record<string, unknown>;
+  categories: { id: number; name: string; risers: number }[];
+  category_cursor: number;
+  triage_queue: string[];
+  triage_cursor: number;
+  scanned: number;
+  killed: number;
+  triaged: number;
+  spent_pence: number;
+  keepa_tokens_left: number | null;
+  cap_pence: number;
+  error: string | null;
+  ticks: number;
+  last_tick_at: string | null;
+};
+
+export async function createRun(params: Record<string, unknown>, capPence: number) {
+  const db = getDb();
+  const { data, error } = await db
+    .from("runs")
+    .insert({ params, cap_pence: capPence })
+    .select()
+    .single();
+  if (error) throw new Error(`Could not create the run: ${error.message}`);
+  return data as RunRow;
+}
+
+export async function getRun(id: string): Promise<RunRow | null> {
+  const db = getDb();
+  const { data, error } = await db.from("runs").select("*").eq("id", id).maybeSingle();
+  if (error) throw new Error(`Could not load the run: ${error.message}`);
+  return (data as RunRow) ?? null;
+}
+
+/**
+ * Claims the next run needing work.
+ *
+ * Ordered oldest first so a queue drains rather than starving its head, and
+ * limited to one because a tick does one slice.
+ */
+export async function nextRunnable(): Promise<RunRow | null> {
+  const db = getDb();
+  const { data, error } = await db
+    .from("runs")
+    .select("*")
+    .in("status", ["queued", "finding", "sweeping", "triaging"])
+    .order("updated_at", { ascending: true })
+    .limit(1);
+  if (error) throw new Error(`Could not find a run: ${error.message}`);
+  return ((data ?? [])[0] as RunRow) ?? null;
+}
+
+export async function updateRun(id: string, patch: Partial<RunRow>) {
+  const db = getDb();
+  const { error } = await db
+    .from("runs")
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw new Error(`Could not update the run: ${error.message}`);
+}
+
+export async function listRuns(limit = 20): Promise<RunRow[]> {
+  const db = getDb();
+  const { data, error } = await db
+    .from("runs")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`Could not list runs: ${error.message}`);
+  return (data ?? []) as RunRow[];
+}

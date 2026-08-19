@@ -1,0 +1,38 @@
+# Restarts any run that has gone quiet.
+#
+# A tick fires the next one before returning, so a run normally walks itself
+# forward with nothing watching. But a lost invocation — a cold start that
+# times out, a deploy landing mid-run — leaves it stopped with no error, which
+# is the worst kind of failure because nothing says so.
+#
+# This costs nothing (GitHub Actions on a repo that already exists) and turns
+# a lost tick into a ten-minute delay rather than a dead run.
+name: Pipeline watchdog
+
+on:
+  schedule:
+    # Every ten minutes. Vercel's Hobby plan allows one cron a day, which is
+    # why this lives here rather than in vercel.json.
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Nudge any stalled run
+        run: |
+          # The tick endpoint claims the oldest run needing work, so calling it
+          # blind is enough — no need to know which run is stuck.
+          code=$(curl -s -o /tmp/out.json -w "%{http_code}" -X POST \
+            -H "Content-Type: application/json" \
+            -H "x-watchdog-secret: ${{ secrets.WATCHDOG_SECRET }}" \
+            "${{ secrets.SITE_URL }}/api/pipeline/tick" \
+            --max-time 120 || true)
+          echo "HTTP $code"
+          cat /tmp/out.json || true
+          # A watchdog that fails the build on a quiet minute is noise. Only a
+          # missing secret should ever fail it.
+          if [ -z "${{ secrets.SITE_URL }}" ]; then
+            echo "SITE_URL secret is not set"; exit 1
+          fi
