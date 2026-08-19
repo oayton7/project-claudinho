@@ -105,8 +105,12 @@ export async function POST(request: Request) {
     const risers = await findUsRisers({
       minGrowth,
       maxCurrentRank: num("maxCurrentRank", 20000),
-      minCurrentRank: num("minCurrentRank", 500),
-      maxAvg365Rank: num("maxAvg365Rank", 200000),
+      // These must match the library's defaults, not shadow them. The first
+      // attempt at tightening the window changed keepa.ts and left 500 and
+      // 200,000 here, so nothing moved and the output still said 500–200000
+      // while the code claimed otherwise.
+      minCurrentRank: num("minCurrentRank", 2000),
+      maxAvg365Rank: num("maxAvg365Rank", 60000),
       minPrice: num("minPrice", 10),
       maxPrice: num("maxPrice", 60),
       limit,
