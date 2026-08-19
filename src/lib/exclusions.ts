@@ -187,7 +187,15 @@ const NEVER_ANYWHERE = [
   "fertilizer",
   "solvent",
   "aerosol",
-  "paint",
+  // Not bare "paint". It matched "Diamond Painting Kits" and removed the best
+  // candidate on the shortlist — an over-block is worse than a leak, because a
+  // leak is visible and this just looks like a quiet market. The hazardous
+  // forms are named instead.
+  "spray paint",
+  "paint stripper",
+  "wood stain",
+  "varnish",
+  "white spirit",
   "adhesive",
   "sealant",
   "grout",
