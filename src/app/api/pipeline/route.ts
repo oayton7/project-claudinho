@@ -6,7 +6,9 @@ import {
   findUsRisers,
 } from "@/lib/keepa";
 import {
+  MAX_PER_CATEGORY,
   buildCandidate,
+  capPerCategory,
   dedupeVariations,
   judgeFreely,
   type Candidate,
@@ -371,7 +373,15 @@ export async function POST(request: Request) {
         );
 
         const repeats = all.filter((c) => !c.killed).length - fresh.length;
-        const survivors = fresh.slice(0, num("triageLimit", TRIAGE_LIMIT));
+
+        // Three per category is the useful number. The fourth costs 0.2p to
+        // repeat what the first three said, and takes the slot of a category
+        // nobody has looked at.
+        const { capped, dropped } = capPerCategory(
+          fresh,
+          num("maxPerCategory", MAX_PER_CATEGORY),
+        );
+        const survivors = capped.slice(0, num("triageLimit", TRIAGE_LIMIT));
 
         send(controller, {
           type: "scored",
@@ -379,11 +389,19 @@ export async function POST(request: Request) {
           killed: all.length - all.filter((c) => !c.killed).length,
           saved,
           alreadyJudged: repeats,
+          beyondThreePerCategory: dropped,
           toTriage: survivors.length,
           note:
-            repeats > 0
-              ? `${repeats} survived the arithmetic but have been judged before, or are a sibling of something judged before. Not paid for again.`
-              : null,
+            [
+              repeats > 0
+                ? `${repeats} survived the arithmetic but were judged before, or are a sibling of something judged before.`
+                : "",
+              dropped > 0
+                ? `${dropped} were a fourth or later product from a category already represented — three competitors tell you what the category is like, a fifth does not.`
+                : "",
+            ]
+              .filter(Boolean)
+              .join(" ") || null,
         });
 
         // ── 4. Paid opinions, on survivors only ──────────────────────────

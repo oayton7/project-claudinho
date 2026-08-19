@@ -325,3 +325,48 @@ export function dedupeVariations(candidates: Candidate[]): {
 
   return { unique, collapsed };
 }
+
+
+/**
+ * At most a few products from any one category.
+ *
+ * Two different kinds of repetition, and only one of them is waste.
+ *
+ * Five sizes of the same listing is one product, and dedupeVariations already
+ * collapses those. Three different sellers' versions of the same kind of
+ * product is not repetition at all — it is the competitive picture. If all
+ * three are executing badly the category is soft; if two are excellent it is
+ * not, and no single listing tells you which.
+ *
+ * Three is the useful number. Beyond that the fourth and fifth cost 0.2p each
+ * to tell you what the first three already did, and crowd out a category
+ * nobody has looked at. Capping here rather than at the sweep is deliberate:
+ * the arithmetic runs on everything because it is free, and only the paid
+ * stage is rationed.
+ */
+export const MAX_PER_CATEGORY = 3;
+
+export function capPerCategory(
+  candidates: Candidate[],
+  max = MAX_PER_CATEGORY,
+): { capped: Candidate[]; dropped: number } {
+  const counts = new Map<string, number>();
+  const capped: Candidate[] = [];
+  let dropped = 0;
+
+  // Best first, so the cap keeps the strongest rather than whichever Keepa
+  // happened to list earliest.
+  for (const c of [...candidates].sort(
+    (a, b) => (b.score?.total ?? 0) - (a.score?.total ?? 0),
+  )) {
+    const seen = counts.get(c.category) ?? 0;
+    if (seen >= max) {
+      dropped += 1;
+      continue;
+    }
+    counts.set(c.category, seen + 1);
+    capped.push(c);
+  }
+
+  return { capped, dropped };
+}
