@@ -135,10 +135,18 @@ export type MarginResult = {
  * roughly 180 units, below the minimum order quantity most suppliers will
  * accept, so it killed products on MOQ rather than on merit.
  *
- * 40% of £3,000 is £1,200: enough for a 300-unit order, and it still leaves
- * a real second attempt plus the launch ad budget. The cap exists to
- * guarantee a second attempt, not to minimise spend — the plan assumes the
- * first product is probably wrong.
+ * 40% of £3,000 is £1,200: enough for a 300-unit order at a realistic landed
+ * cost, and it still leaves a real second attempt plus the launch ad budget.
+ *
+ * £3,000 is the working figure and about £5,000 is reachable for a product
+ * that earns it (Oscar, 19 Aug 2026). That is why this check has always been
+ * a warning rather than a kill: "needs more money than you have today" is a
+ * decision, not a fact about the product. What the tool owes him is the cash
+ * figure so the decision is informed — see orderCostAtMoq.
+ *
+ * The cap exists to guarantee a second attempt, not to minimise spend. The
+ * plan assumes the first product is probably wrong, and a bigger budget does
+ * not change that.
  */
 export const CAPITAL_CAP_PCT = 40;
 
@@ -614,4 +622,46 @@ export function maxLandedCost(
   return fromMargin <= fromCap
     ? { landed: round(Math.max(0, fromMargin)), bindingConstraint: "margin" }
     : { landed: round(Math.max(0, fromCap)), bindingConstraint: "landed cost cap" };
+}
+
+/**
+ * What a first order costs, at the MOQs suppliers actually quote.
+ *
+ * The capital cap has always been a warning rather than a kill, because
+ * "needs more money than you have" is a decision rather than a fact — Oscar
+ * can find more for a product worth funding. But that decision needs a
+ * number, and until now the tool gave a percentage.
+ *
+ * This turns it into cash. Priced at the landed ceiling rather than a guessed
+ * supplier price: the ceiling is the most a unit could cost and still clear
+ * the margin floor, so this is the worst case that still works. A real quote
+ * below the ceiling only makes it cheaper.
+ */
+export function orderCostAtMoq(
+  maxLanded: number,
+  capital: number,
+  quantities: number[] = [100, 300, 500, 1000],
+): {
+  units: number;
+  cost: number;
+  pctOfCapital: number;
+  withinCap: boolean;
+  shortfall: number;
+}[] {
+  return quantities.map((units) => {
+    const cost = Math.round(maxLanded * units * 100) / 100;
+    const pct = capital > 0 ? (cost / capital) * 100 : 0;
+    return {
+      units,
+      cost,
+      pctOfCapital: Math.round(pct * 10) / 10,
+      withinCap: pct <= CAPITAL_CAP_PCT,
+      // What you would need to find to make this order at this quantity,
+      // staying inside the cap. Zero when it already fits.
+      shortfall:
+        pct <= CAPITAL_CAP_PCT
+          ? 0
+          : Math.round((cost / (CAPITAL_CAP_PCT / 100) - capital) * 100) / 100,
+    };
+  });
 }

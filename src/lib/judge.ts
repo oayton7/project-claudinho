@@ -103,7 +103,7 @@ export const PremortemSchema = z.object({
 
 export type Premortem = z.infer<typeof PremortemSchema>;
 
-export const JUDGE_SYSTEM_PROMPT = `You are the Judge in a product-sourcing tool for a UK-based first-time Amazon FBA seller with roughly £3,000 of capital. You are scoring one candidate product.
+export const JUDGE_SYSTEM_PROMPT = `You are the Judge in a product-sourcing tool for a UK-based first-time Amazon FBA seller with roughly £3,000 of capital, stretchable to about £5,000 for a product that genuinely warrants it. You are scoring one candidate product.
 
 ## The thesis you are testing against
 
@@ -231,7 +231,7 @@ ${p.competitorNotes || "(not provided)"}
 **US signal:** ${usSignalText}${weightNote}`;
 }
 
-export const PREMORTEM_SYSTEM_PROMPT = `You are running a pre-mortem for a UK first-time Amazon FBA seller with roughly £3,000 of capital who is about to commit money to a product.
+export const PREMORTEM_SYSTEM_PROMPT = `You are running a pre-mortem for a UK first-time Amazon FBA seller with roughly £3,000 of capital, stretchable to about £5,000 for a product that genuinely warrants it who is about to commit money to a product.
 
 Assume the purchase already happened and it failed. It is six months later and roughly £1,500 is gone. Your job is to explain why, before he spends anything.
 
@@ -507,7 +507,7 @@ export type Triage = z.infer<typeof TriageSchema>;
  * the user turn, never here — a single changed character in this string
  * invalidates the cache for the whole run.
  */
-export const TRIAGE_SYSTEM_PROMPT = `You are triaging candidate products for a UK first-time Amazon FBA seller with about £3,000 of capital. You are not writing an analysis. You are deciding whether a product deserves a full, expensive review.
+export const TRIAGE_SYSTEM_PROMPT = `You are triaging candidate products for a UK first-time Amazon FBA seller with about £3,000 of capital, stretchable to roughly £5,000 for something exceptional. You are not writing an analysis. You are deciding whether a product deserves a full, expensive review.
 
 The thesis: the opening is a product with proven demand and poor execution. High review counts are good — they prove people already spend money here. A mediocre rating alongside them is the gap. A neglected listing, a random-string brand name, few images, no bullet points: those are jobs that can be done better, and they matter more than the product being novel.
 
@@ -601,7 +601,7 @@ export const ReviewAnalysisSchema = z.object({
 
 export type ReviewAnalysis = z.infer<typeof ReviewAnalysisSchema>;
 
-export const REVIEW_SYSTEM_PROMPT = `You are reading Amazon reviews for a UK first-time seller with about £3,000 of capital who is looking for a product to improve and sell better.
+export const REVIEW_SYSTEM_PROMPT = `You are reading Amazon reviews for a UK first-time seller with about £3,000 of capital, stretchable to roughly £5,000 for something exceptional who is looking for a product to improve and sell better.
 
 You are looking for one thing: the gap between what people wanted and what they got. That gap is the opening.
 

@@ -14,6 +14,7 @@ import {
   fbaFee,
   lowPriceThresholdFor,
 } from "../src/lib/fees.ts";
+import { orderCostAtMoq } from "../src/lib/margin.ts";
 import {
   calculateMargin,
   maxLandedCost,
@@ -250,6 +251,45 @@ expect(
   1,
 );
 console.log(`       ${assumedRun.assumptions[0]}`);
+
+// --- What a first order costs -------------------------------------------
+//
+// The capital cap is a warning, not a kill: "needs more money than you have"
+// is a decision, and Oscar can find more for a product worth funding. That
+// decision needs cash rather than a percentage.
+console.log("\n--- First order cost at supplier MOQs (£3,000 working capital) ---");
+
+const orders = orderCostAtMoq(9.29, 3000);
+const at300 = orders.find((o) => o.units === 300)!;
+const at1000 = orders.find((o) => o.units === 1000)!;
+
+// The diamond painting kit's real ceiling, priced at the MOQs suppliers quote.
+expect("300 units at a £9.29 ceiling", at300.cost, 2787);
+expect("which is over the 40% cap", at300.withinCap ? 1 : 0, 0);
+// What Oscar would need in total to make this order inside the cap. He has
+// said about £5,000 is reachable, so a shortfall near that is a live option
+// and one far past it is not.
+expect("total capital it would need", at300.shortfall, 3967.5);
+
+expect("1000 units", at1000.cost, 9290);
+expect("also over", at1000.withinCap ? 1 : 0, 0);
+
+// A cheaper product at the same quantity should fit.
+const cheap = orderCostAtMoq(4, 3000).find((o) => o.units === 300)!;
+// £4 x 300 is £1,200, which is exactly 40% of £3,000 — the boundary sits on
+// "fits", and a product landing at exactly the cap is not a product to reject.
+expect("£4 landed at 300 units sits exactly on the cap", cheap.withinCap ? 1 : 0, 1);
+expect("with nothing to find", cheap.shortfall, 0);
+
+// A penny more and it does not.
+const overByAPenny = orderCostAtMoq(4.01, 3000).find((o) => o.units === 300)!;
+expect("£4.01 does not", overByAPenny.withinCap ? 1 : 0, 0);
+
+orders.forEach((o) =>
+  console.log(
+    `       ${o.units} units: £${o.cost} (${o.pctOfCapital}% of capital)${o.withinCap ? "" : ` — needs £${o.shortfall} more`}`,
+  ),
+);
 
 if (failed > 0) {
   console.error(`\n${failed} check(s) failed.`);
