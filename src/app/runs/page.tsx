@@ -68,9 +68,13 @@ export default function RunsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           minGrowth: 1.5,
-          categoryLimit: 5,
-          triageLimit: 15,
-          maxPages: 6,
+          // Twelve categories at three products each is 36 scanned and up to
+          // 30 judged, for about 250 Keepa tokens and 6p. The ceiling is the
+          // token bucket, not the code, and a long run costs nothing extra
+          // now that a run is a job rather than a request.
+          categoryLimit: 12,
+          triageLimit: 30,
+          maxPages: 10,
           capPence: 50,
         }),
       });

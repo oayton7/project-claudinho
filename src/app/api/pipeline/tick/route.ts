@@ -123,12 +123,21 @@ export async function POST(request: Request) {
         categories: new Set<string>(),
       }));
 
-      let categories: { id: number; name: string; risers: number }[] = [];
+      // Gather across pages rather than stopping at the first that yields
+      // anything.
+      //
+      // The old loop broke as soon as one page produced a single new category,
+      // so a run swept one category and finished in four ticks. Each page is a
+      // fresh fifty products for about eleven tokens, and the whole point of
+      // the job architecture is that a long run is free — there is no reason to
+      // stop early when the ceiling is tokens rather than time.
+      const wanted = num("categoryLimit", 5);
+      const found = new Map<number, { id: number; name: string; risers: number }>();
       let page = num("page", 0);
-      const maxPages = num("maxPages", 6);
+      const maxPages = num("maxPages", 8);
       let tokensLeft: number | null = null;
 
-      for (let attempt = 0; attempt < maxPages && categories.length === 0; attempt += 1) {
+      for (let attempt = 0; attempt < maxPages && found.size < wanted; attempt += 1) {
         const risers = await findUsRisers({
           minGrowth: num("minGrowth", 1.5),
           minPrice: num("minPrice", 10),
@@ -157,11 +166,18 @@ export async function POST(request: Request) {
           else tally.set(leaf.catId, { id: leaf.catId, name: leaf.name, risers: 1 });
         }
 
-        categories = [...tally.values()]
-          .filter((c) => !covered.categories.has(c.name))
-          .sort((a, b) => b.risers - a.risers)
-          .slice(0, num("categoryLimit", 5));
+        for (const c of tally.values()) {
+          if (covered.categories.has(c.name)) continue;
+          const held = found.get(c.id);
+          if (held) held.risers += c.risers;
+          else found.set(c.id, c);
+          if (found.size >= wanted) break;
+        }
       }
+
+      const categories = [...found.values()]
+        .sort((a, b) => b.risers - a.risers)
+        .slice(0, wanted);
 
       if (categories.length === 0) {
         await updateRun(run.id, {
