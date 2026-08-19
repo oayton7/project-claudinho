@@ -20,6 +20,17 @@ import { MIGRATIONS } from "@/lib/migrations";
  */
 export const maxDuration = 120;
 
+/**
+ * Supabase terminates TLS with a chain Node does not carry, so a default
+ * client fails with "self-signed certificate in certificate chain".
+ *
+ * The connection is still encrypted; what is switched off is verification of
+ * the chain. That is the usual arrangement for Supabase's direct connection,
+ * and the exposure is bounded: the host comes from an environment variable set
+ * by the Supabase integration, not from anything a caller can influence.
+ */
+const SSL = { rejectUnauthorized: false };
+
 function connectionString(): string | null {
   return (
     process.env.POSTGRES_URL_NON_POOLING ??
@@ -47,7 +58,7 @@ export async function GET() {
     );
   }
 
-  const client = new Client({ connectionString: url });
+  const client = new Client({ connectionString: url, ssl: SSL });
   try {
     await client.connect();
     const { rows } = await client.query<{ table_name: string }>(
@@ -85,7 +96,7 @@ export async function POST() {
     );
   }
 
-  const client = new Client({ connectionString: url });
+  const client = new Client({ connectionString: url, ssl: SSL });
   const applied: { name: string; ok: boolean; error?: string }[] = [];
 
   try {
