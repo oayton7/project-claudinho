@@ -22,7 +22,38 @@ type Analysis = {
  *
  * Written as one line because a bookmarklet has to be.
  */
-const BOOKMARKLET = `javascript:(function(){var r=document.querySelectorAll('[data-hook="review"]');if(!r.length){alert('No reviews found. Make sure you are on the reviews page, not the product page.');return;}var o=[];r.forEach(function(x){var s=x.querySelector('[data-hook="review-star-rating"],[data-hook="cmps-review-star-rating"]');var t=x.querySelector('[data-hook="review-title"]');var b=x.querySelector('[data-hook="review-body"]');o.push((s?s.innerText.trim().split('\\n')[0]:'')+' | '+(t?t.innerText.trim().split('\\n').pop():'')+'\\n'+(b?b.innerText.trim():''));});var out=o.join('\\n\\n---\\n\\n');navigator.clipboard.writeText(out).then(function(){alert('Copied '+r.length+' reviews. Paste them into Project Claudinho.');},function(){var w=window.open('','_blank');w.document.write('<pre>'+out.replace(/</g,'&lt;')+'</pre>');});})();`;
+const BOOKMARKLET = `javascript:(async function(){
+var m=location.href.match(/\/(?:dp|product-reviews|gp\/product)\/([A-Z0-9]{10})/);
+if(!m){alert('Open the Amazon product page or its reviews page first.');return;}
+var asin=m[1],all=[],seen={},pages=0;
+for(var p=1;p<=12;p++){
+ var u='/product-reviews/'+asin+'/?filterByStar=three_star&reviewerType=all_reviews&pageNumber='+p;
+ var r;try{r=await fetch(u,{credentials:'include'});}catch(e){break;}
+ if(!r.ok)break;
+ var d=new DOMParser().parseFromString(await r.text(),'text/html');
+ if(d.querySelector('form[name=signIn]')||/ap\\/signin/.test(d.documentElement.innerHTML.slice(0,4000))){
+  alert('Amazon is asking you to sign in. Sign in to amazon.co.uk in this browser, then click again.');return;}
+ var rs=d.querySelectorAll('[data-hook="review"]');
+ if(!rs.length)break;
+ pages++;
+ var before=all.length;
+ rs.forEach(function(x){
+  var id=x.getAttribute('id')||'';
+  if(seen[id])return;seen[id]=1;
+  var st=x.querySelector('[data-hook="review-star-rating"],[data-hook="cmps-review-star-rating"]');
+  var t=x.querySelector('[data-hook="review-title"]');
+  var b=x.querySelector('[data-hook="review-body"]');
+  var body=b?b.textContent.trim():'';
+  if(!body)return;
+  all.push((st?st.textContent.trim().split('\\n')[0]:'')+' | '+(t?t.textContent.trim().split('\\n').pop().trim():'')+'\\n'+body);
+ });
+ if(all.length===before)break;
+}
+if(!all.length){alert('No three-star review text found. Either there are none, or Amazon wants you signed in.');return;}
+var out='ASIN: '+asin+'\\nStars: 3\\nReviews: '+all.length+' across '+pages+' page(s)\\n\\n'+all.join('\\n\\n---\\n\\n');
+try{await navigator.clipboard.writeText(out);alert('Copied '+all.length+' three-star reviews for '+asin+'.\\n\\nPaste into Project Claudinho.');}
+catch(e){var w=window.open('','_blank');w.document.write('<pre>'+out.replace(/</g,'&lt;')+'</pre>');}
+})();`;
 
 export default function ReviewsPage() {
   const [asin, setAsin] = useState("");
@@ -99,10 +130,18 @@ export default function ReviewsPage() {
           <h2 className="text-sm font-medium text-black dark:text-zinc-100">
             Getting the reviews out of Amazon
           </h2>
+          <p className="mt-3 rounded border border-zinc-200 bg-zinc-50 p-3 text-xs leading-5 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+            <strong className="font-medium">Why three stars.</strong> One-star
+            reviews are mostly delivery failures and wrong items, and five-star
+            reviews say &quot;great, thanks&quot;. Three stars is someone who
+            wanted to like it, used it, and was let down by something specific.
+            That specific thing is what you would fix.
+          </p>
           <p className="mt-1 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-            Amazon blocks servers from reading reviews, so the app cannot fetch
-            them. Your own browser reading a page you are already on is a
-            different matter. Drag this to your bookmarks bar once:
+            Amazon blocks servers from reading reviews and asks a logged-out
+            visitor to sign in, so the app cannot fetch them. Your own browser,
+            already signed in, is a different matter. Drag this to your
+            bookmarks bar once:
           </p>
           <a
             href={BOOKMARKLET}
@@ -121,14 +160,20 @@ export default function ReviewsPage() {
             {copied ? "Copied — make a bookmark and paste this as the URL" : "Or copy the code"}
           </button>
           <ol className="mt-4 list-decimal space-y-1 pl-5 text-sm leading-6 text-zinc-700 dark:text-zinc-300">
-            <li>Open the product on Amazon and click through to all reviews</li>
             <li>
-              Filter to <strong className="font-medium">3 star</strong>. One-star
-              reviews are mostly delivery complaints and five-star ones say
-              little. Three stars is someone who wanted to like it
+              Make sure you are signed in to amazon.co.uk in this browser. The
+              reviews are gated behind it
             </li>
-            <li>Click the bookmarklet. It copies the reviews</li>
-            <li>Paste below</li>
+            <li>
+              Open the product page. Any page with the ASIN in the URL will do —
+              you do not need to click through to the reviews
+            </li>
+            <li>
+              Click the bookmarklet. It filters to{" "}
+              <strong className="font-medium">three stars</strong> itself, walks
+              every page of them, and copies the lot
+            </li>
+            <li>Paste below. The ASIN fills itself in</li>
           </ol>
         </div>
 
@@ -174,7 +219,17 @@ export default function ReviewsPage() {
 
         <textarea
           value={rawText}
-          onChange={(e) => setRawText(e.target.value)}
+          onChange={(e) => {
+            const text = e.target.value;
+            setRawText(text);
+            // The bookmarklet writes a header, so the ASIN and star filter fill
+            // themselves in. One less thing to retype, and one less way to
+            // save reviews against the wrong product.
+            const found = text.match(/^ASIN:\s*([A-Z0-9]{10})/m);
+            if (found && !asin) setAsin(found[1]);
+            const stars = text.match(/^Stars:\s*(\d)/m);
+            if (stars) setStarFilter(`${stars[1]} star`);
+          }}
           rows={10}
           placeholder="Paste the reviews here…"
           className="mt-4 w-full rounded border border-zinc-300 bg-white p-3 font-mono text-xs text-black dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
