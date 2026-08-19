@@ -122,6 +122,25 @@ expect("£4 product is killed", hardKill({ ...base, price: 4 }) !== null, true);
 expect("4kg product is killed", hardKill({ ...base, packageWeightG: 4000 }) !== null, true);
 expect("an ordinary product is not", hardKill(base), null);
 
+console.log("\nAn impossible margin is a kill, whatever else is true\n");
+
+// The first working sweep marked a product TEST with a £1.90 ceiling. Nothing
+// is manufactured, shipped, duty-paid and prepped for £1.90, so that verdict
+// was impossible rather than optimistic.
+assert(
+  "£1.90 to land a unit is a kill",
+  hardKill({ ...base, maxLandedCost: 1.9 }) !== null,
+);
+assert(
+  "and it survives a strong score",
+  autoVerdict(
+    scoreCandidate({ ...base, maxLandedCost: 1.9, unhappyBuyers: 8000, listingWeaknessCount: 5 }),
+    hardKill({ ...base, maxLandedCost: 1.9 }),
+    { rating: 3.9, reviewCount: 2000 },
+  ).verdict === "KILL",
+);
+assert("£4 of room is not a kill", hardKill({ ...base, maxLandedCost: 4 }) === null);
+
 console.log("\nMissing evidence must not become a confident verdict\n");
 
 // The real failure this pins: a sweep returned products scored 86 and marked

@@ -265,8 +265,14 @@ export function hardKill(c: Scorable): string | null {
     return `£${c.price.toFixed(2)} is too low for the fees to leave anything`;
   if (c.packageWeightG !== null && c.packageWeightG > 3000)
     return `${c.packageWeightG}g, freight will eat the margin`;
-  if (c.maxLandedCost !== null && c.maxLandedCost < 1.5)
-    return `only £${c.maxLandedCost.toFixed(2)} to land a unit, nothing is makeable for that`;
+  // Raised from £1.50 on 19 Aug 2026. The first working sweep produced a TEST
+  // verdict on a product with a £1.90 ceiling — nothing is manufactured,
+  // shipped from China, duty-paid and prepped for £1.90, so that verdict was
+  // economically impossible rather than merely optimistic. A ceiling this low
+  // is a fact about the sell price, and no amount of strength elsewhere fixes
+  // it.
+  if (c.maxLandedCost !== null && c.maxLandedCost < 2.5)
+    return `only £${c.maxLandedCost.toFixed(2)} to land a unit and still clear 15% — nothing is makeable, shipped and prepped for that`;
   return null;
 }
 
