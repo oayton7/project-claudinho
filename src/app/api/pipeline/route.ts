@@ -13,6 +13,7 @@ import {
   guardedTriage,
   priceTriage,
 } from "@/lib/claude";
+import { isMedia } from "@/lib/exclusions";
 import {
   TRIAGE_SYSTEM_PROMPT,
   TriageSchema,
@@ -89,19 +90,51 @@ export async function POST(request: Request) {
           return;
         }
 
-        const usDetail = await fetchProductRaw(
-          risers.asins.join(","),
-          KEEPA_DOMAIN.US,
-          { history: false, stats: 365 },
-        );
+        // Both markets, because the US tells us what is moving and only the
+        // UK can tell us where to look for it here.
+        const [usDetail, ukDetail] = await Promise.all([
+          fetchProductRaw(risers.asins.join(","), KEEPA_DOMAIN.US, {
+            history: false,
+            stats: 365,
+          }),
+          fetchProductRaw(risers.asins.join(","), KEEPA_DOMAIN.UK, {
+            history: false,
+            stats: 0,
+          }),
+        ]);
         const usProducts = ((usDetail.raw as Record<string, unknown>).products ??
           []) as Record<string, unknown>[];
+        const ukProducts = ((ukDetail.raw as Record<string, unknown>).products ??
+          []) as Record<string, unknown>[];
+        const ukByAsin = new Map(
+          ukProducts
+            .filter((p) => typeof p.asin === "string")
+            .map((p) => [p.asin as string, p]),
+        );
 
-        // Categories, tallied by how many risers sit in each. A category with
-        // several is a market moving; one is an anecdote.
+        // Categories, tallied by how many risers sit in each.
+        //
+        // Read from the UK record, not the US one. Amazon's category trees are
+        // per-marketplace: a US catId means nothing to a UK search, so the
+        // first version of this swept three real categories and found nothing
+        // in all three. The US product says a market is moving; its UK twin
+        // says where that market lives here.
+        //
+        // Media and apparel are dropped before the tally, or a run proposes
+        // sweeping Pullovers and Movies.
         const tally = new Map<number, { id: number; name: string; risers: number }>();
+        let skipped = 0;
         for (const p of usProducts) {
-          const tree = (p.categoryTree ?? []) as { catId: number; name: string }[];
+          if (isMedia(p)) {
+            skipped += 1;
+            continue;
+          }
+          const twin = ukByAsin.get(p.asin as string);
+          if (!twin || isMedia(twin)) {
+            skipped += 1;
+            continue;
+          }
+          const tree = (twin.categoryTree ?? []) as { catId: number; name: string }[];
           const leaf = Array.isArray(tree) ? tree[tree.length - 1] : null;
           if (!leaf?.catId) continue;
           const seen = tally.get(leaf.catId);
@@ -113,7 +146,20 @@ export async function POST(request: Request) {
           .sort((a, b) => b.risers - a.risers)
           .slice(0, num("categoryLimit", CATEGORY_LIMIT));
 
-        send(controller, { type: "categories", categories });
+        send(controller, {
+          type: "categories",
+          categories,
+          skipped,
+          note: "UK category ids, read from each riser's UK listing. A US id would find nothing here — the trees are per-marketplace.",
+        });
+
+        if (categories.length === 0) {
+          send(controller, {
+            type: "error",
+            error: `None of the US risers has a UK listing to take a category from (${skipped} were media, apparel, or absent from Amazon UK). That is itself a finding: the trend has not crossed yet.`,
+          });
+          return;
+        }
 
         // ── 2. Sweep those categories in the UK ──────────────────────────
         const all: Candidate[] = [];
