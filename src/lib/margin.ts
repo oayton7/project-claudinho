@@ -7,7 +7,14 @@
 
 export type MarginInput = {
   sellPrice: number;
-  referralFeePct: number;
+  /**
+   * Decides the referral fee together with the price. Leave `referralFeePct`
+   * undefined and the table works it out; set it to override the table when
+   * you have checked the real figure in Seller Central.
+   */
+  feeCategory?: FeeCategory;
+  /** Overrides the table. Undefined means "use the category and price band". */
+  referralFeePct?: number;
   fbaFee: number;
   fuelSurchargePct: number;
   storagePerUnit: number;
@@ -47,6 +54,11 @@ export type Check = {
 };
 
 export type MarginResult = {
+  /** What the table decided, so the number on screen can be explained. */
+  referralFeePct: number;
+  referralFee: number;
+  /** The 2% Amazon adds on top of referral and fulfilment fees alike. */
+  digitalServicesFee: number;
   /** Includes irrecoverable import VAT. This is what a non-registered seller pays. */
   landedUnitCost: number;
   /** Excludes import VAT, because a registered seller reclaims it. */
@@ -88,6 +100,7 @@ export const CAPITAL_CAP_PCT = 40;
 
 export const DEFAULT_INPUT: MarginInput = {
   sellPrice: 24.99,
+  feeCategory: "other",
   referralFeePct: 15,
   fbaFee: 2.9,
   fuelSurchargePct: 1.5,
@@ -105,6 +118,116 @@ export const DEFAULT_INPUT: MarginInput = {
   importVatRatePct: 20,
 };
 
+/**
+ * Amazon UK referral fees, by category and price band.
+ *
+ * Replaces a flat 15% that was wrong on most products. For an £18 home item
+ * the true rate is 8%, so the flat figure invented £1.26 a unit of cost on a
+ * product whose whole contribution might be £4 — the engine was rejecting
+ * things it should have kept.
+ *
+ * Verified against Amazon's published UK rates on 18 August 2026 and recorded
+ * in section 19.5 of the plan. Amazon moves these, and 2026 has already seen
+ * one large cut, so treat the date as an expiry rather than a signature.
+ *
+ * Where a category has a price break, the cheaper rate applies at or below the
+ * threshold. Bands are expressed as an ordered list and the first match wins,
+ * so a new band can be inserted without rewriting the logic.
+ */
+export const FEE_CATEGORIES = [
+  "home",
+  "garden",
+  "diy",
+  "toys",
+  "sports",
+  "office",
+  "pet",
+  "petFood",
+  "beauty",
+  "health",
+  "grocery",
+  "clothing",
+  "electronics",
+  "videoGames",
+  "jewellery",
+  "deviceAccessories",
+  "other",
+] as const;
+
+export type FeeCategory = (typeof FEE_CATEGORIES)[number];
+
+export const FEE_CATEGORY_LABELS: Record<FeeCategory, string> = {
+  home: "Home & Kitchen",
+  garden: "Garden & Outdoors",
+  diy: "DIY & Tools",
+  toys: "Toys & Games",
+  sports: "Sports & Outdoors",
+  office: "Office Products",
+  pet: "Pet Supplies",
+  petFood: "Pet food & pet clothing",
+  beauty: "Beauty",
+  health: "Health & Personal Care",
+  grocery: "Grocery",
+  clothing: "Clothing & Accessories",
+  electronics: "Consumer electronics",
+  videoGames: "Video games & consoles",
+  jewellery: "Jewellery",
+  deviceAccessories: "Amazon device accessories",
+  other: "Anything else",
+};
+
+/** Ordered bands per category. First band whose ceiling covers the price wins. */
+const REFERRAL_BANDS: Record<FeeCategory, { upTo: number; pct: number }[]> = {
+  // The 2026 cut. Only Home has the £20 break; the neighbouring categories
+  // people assume are the same, like Garden and DIY, do not.
+  home: [{ upTo: 20, pct: 8 }, { upTo: Infinity, pct: 15 }],
+  garden: [{ upTo: Infinity, pct: 15 }],
+  diy: [{ upTo: Infinity, pct: 15 }],
+  toys: [{ upTo: Infinity, pct: 15 }],
+  sports: [{ upTo: Infinity, pct: 15 }],
+  office: [{ upTo: Infinity, pct: 15 }],
+  pet: [{ upTo: Infinity, pct: 15 }],
+  petFood: [{ upTo: 10, pct: 5 }, { upTo: Infinity, pct: 15 }],
+  beauty: [{ upTo: 10, pct: 8 }, { upTo: Infinity, pct: 15 }],
+  health: [{ upTo: 10, pct: 8 }, { upTo: Infinity, pct: 15 }],
+  grocery: [{ upTo: 10, pct: 8 }, { upTo: Infinity, pct: 15 }],
+  clothing: [
+    { upTo: 15, pct: 5 },
+    { upTo: 20, pct: 10 },
+    { upTo: Infinity, pct: 15 },
+  ],
+  electronics: [{ upTo: Infinity, pct: 7 }],
+  videoGames: [{ upTo: Infinity, pct: 8 }],
+  jewellery: [{ upTo: Infinity, pct: 20 }],
+  deviceAccessories: [{ upTo: Infinity, pct: 45 }],
+  // Unknown category assumes the common rate rather than the cheapest. An
+  // estimate that flatters is worse than no estimate, because you act on it.
+  other: [{ upTo: Infinity, pct: 15 }],
+};
+
+/** No referral fee is smaller than this, whatever the percentage works out at. */
+export const MINIMUM_REFERRAL_FEE = 0.25;
+
+/**
+ * Amazon UK adds this on top of referral fees and fulfilment fees alike, so a
+ * quoted 15% is really 15.3%. Small per unit and charged on every unit.
+ *
+ * Applied as a multiplier on the fee subtotal rather than as its own waterfall
+ * line, so a fee type added later cannot quietly escape it.
+ */
+export const DIGITAL_SERVICES_FEE_PCT = 2;
+
+export function referralFeePctFor(category: FeeCategory, sellPrice: number): number {
+  const bands = REFERRAL_BANDS[category] ?? REFERRAL_BANDS.other;
+  return (bands.find((b) => sellPrice <= b.upTo) ?? bands[bands.length - 1]).pct;
+}
+
+/** The actual fee in pounds, with the floor applied. */
+export function referralFeeFor(category: FeeCategory, sellPrice: number): number {
+  const raw = sellPrice * (referralFeePctFor(category, sellPrice) / 100);
+  return Math.max(raw, MINIMUM_REFERRAL_FEE);
+}
+
 const round = (n: number) => Math.round(n * 100) / 100;
 const pct = (n: number) => `${n.toFixed(1)}%`;
 const gbp = (n: number) => `£${n.toFixed(2)}`;
@@ -112,7 +235,7 @@ const gbp = (n: number) => `£${n.toFixed(2)}`;
 export function calculateMargin(input: MarginInput): MarginResult {
   const {
     sellPrice,
-    referralFeePct,
+    feeCategory = "other",
     fbaFee,
     fuelSurchargePct,
     storagePerUnit,
@@ -129,8 +252,21 @@ export function calculateMargin(input: MarginInput): MarginResult {
     importVatRatePct,
   } = input;
 
-  const referralFee = sellPrice * (referralFeePct / 100);
+  // The table unless explicitly overridden. An override of 0 is a real answer
+  // and must survive, so this checks for undefined rather than falsiness.
+  const referralFeePct =
+    input.referralFeePct ?? referralFeePctFor(feeCategory, sellPrice);
+  const referralFee =
+    input.referralFeePct === undefined
+      ? referralFeeFor(feeCategory, sellPrice)
+      : Math.max(sellPrice * (referralFeePct / 100), MINIMUM_REFERRAL_FEE);
+
   const fuelSurcharge = fbaFee * (fuelSurchargePct / 100);
+
+  // Charged on Amazon's fees, not on the sale. Kept as one line computed from
+  // the subtotal so a fee type added later is covered without being remembered.
+  const digitalServicesFee =
+    (referralFee + fbaFee + fuelSurcharge) * (DIGITAL_SERVICES_FEE_PCT / 100);
 
   // Import VAT is charged on goods + freight + duty at the border. Prep is a
   // UK service billed separately, so it sits outside this base.
@@ -155,6 +291,7 @@ export function calculateMargin(input: MarginInput): MarginResult {
     referralFee -
     fbaFee -
     fuelSurcharge -
+    digitalServicesFee -
     storagePerUnit -
     landedUnitCost;
 
@@ -189,12 +326,24 @@ export function calculateMargin(input: MarginInput): MarginResult {
 
   const waterfall: WaterfallLine[] = [
     { label: "Sell price", amount: sellPrice },
-    { label: `Referral fee (${referralFeePct}%)`, amount: -referralFee },
+    {
+      label: `Referral fee (${referralFeePct}%)`,
+      amount: -referralFee,
+      note:
+        input.referralFeePct === undefined
+          ? `${FEE_CATEGORY_LABELS[feeCategory]} at £${sellPrice.toFixed(2)}${referralFee === MINIMUM_REFERRAL_FEE ? ", raised to the £0.25 minimum" : ""}`
+          : "Overridden by hand, not from the fee table",
+    },
     { label: "FBA fulfilment", amount: -fbaFee },
     {
       label: `Fuel & logistics surcharge (${fuelSurchargePct}%)`,
       amount: -fuelSurcharge,
       note: "Charged on the fulfilment fee, not the sell price",
+    },
+    {
+      label: `Digital Services Fee (${DIGITAL_SERVICES_FEE_PCT}%)`,
+      amount: -digitalServicesFee,
+      note: "Charged on Amazon's fees rather than on the sale, so a quoted 15% referral is really 15.3%",
     },
     { label: "Storage while held", amount: -storagePerUnit },
     {
@@ -278,6 +427,9 @@ export function calculateMargin(input: MarginInput): MarginResult {
       : "TEST";
 
   return {
+    referralFeePct,
+    referralFee: round(referralFee),
+    digitalServicesFee: round(digitalServicesFee),
     landedUnitCost: round(landedUnitCost),
     landedUnitCostRegistered: round(landedUnitCostRegistered),
     importVat: round(importVat),
@@ -298,9 +450,21 @@ export function calculateMargin(input: MarginInput): MarginResult {
   };
 }
 
-const NUMERIC_FIELDS: (keyof MarginInput)[] = [
+/**
+ * Only the keys that genuinely hold a number, so the loop below stays typed.
+ * feeCategory is a string and referralFeePct is now optional, so both are
+ * handled separately after it.
+ */
+type NumericField = {
+  [K in keyof MarginInput]-?: MarginInput[K] extends number | undefined
+    ? K extends "referralFeePct"
+      ? never
+      : K
+    : never;
+}[keyof MarginInput];
+
+const NUMERIC_FIELDS: NumericField[] = [
   "sellPrice",
-  "referralFeePct",
   "fbaFee",
   "fuelSurchargePct",
   "storagePerUnit",
@@ -346,6 +510,29 @@ export function parseMarginInput(
     value[field] = n;
   }
 
+  // The category picks the referral fee, so an unrecognised one must not fall
+  // through to a cheap default. Missing is fine and means "other".
+  if (raw.feeCategory !== undefined && raw.feeCategory !== "") {
+    if (!FEE_CATEGORIES.includes(raw.feeCategory as FeeCategory)) {
+      errors.push(
+        `feeCategory must be one of: ${FEE_CATEGORIES.join(", ")}`,
+      );
+    } else {
+      value.feeCategory = raw.feeCategory as FeeCategory;
+    }
+  }
+
+  // Optional by design: absent means the table decides. Present means the user
+  // checked Seller Central and is overriding it.
+  if (raw.referralFeePct !== undefined && raw.referralFeePct !== "") {
+    const pct = Number(raw.referralFeePct);
+    if (Number.isNaN(pct) || pct < 0) {
+      errors.push("referralFeePct must be a number, or left out entirely");
+    } else {
+      value.referralFeePct = pct;
+    }
+  }
+
   return errors.length > 0 ? { ok: false, errors } : { ok: true, value };
 }
 
@@ -372,6 +559,7 @@ export function parseMarginInput(
 export function maxLandedCost(
   sellPrice: number,
   opts: {
+    feeCategory?: FeeCategory;
     referralFeePct?: number;
     fbaFee?: number;
     fuelSurchargePct?: number;
@@ -382,7 +570,7 @@ export function maxLandedCost(
   } = {},
 ): { landed: number; bindingConstraint: "margin" | "landed cost cap" } {
   const {
-    referralFeePct = DEFAULT_INPUT.referralFeePct,
+    feeCategory = "other",
     fbaFee = DEFAULT_INPUT.fbaFee,
     fuelSurchargePct = DEFAULT_INPUT.fuelSurchargePct,
     storagePerUnit = DEFAULT_INPUT.storagePerUnit,
@@ -391,11 +579,20 @@ export function maxLandedCost(
     targetNetMarginPct = 15,
   } = opts;
 
+  const referralFee =
+    opts.referralFeePct === undefined
+      ? referralFeeFor(feeCategory, sellPrice)
+      : Math.max(sellPrice * (opts.referralFeePct / 100), MINIMUM_REFERRAL_FEE);
+  const fuelSurcharge = fbaFee * (fuelSurchargePct / 100);
+  const digitalServicesFee =
+    (referralFee + fbaFee + fuelSurcharge) * (DIGITAL_SERVICES_FEE_PCT / 100);
+
   const fromMargin =
     sellPrice -
-    sellPrice * (referralFeePct / 100) -
+    referralFee -
     fbaFee -
-    fbaFee * (fuelSurchargePct / 100) -
+    fuelSurcharge -
+    digitalServicesFee -
     storagePerUnit -
     sellPrice * (returnsPct / 100) -
     adCostPerUnit -
