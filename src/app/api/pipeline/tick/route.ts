@@ -432,8 +432,8 @@ async function doOneSlice(request: Request, runId?: string) {
         await updateRun(run.id, {
           spent_pence: now,
           stage_detail: `judged ${next.asin}: ${judged.judgement.verdict}${
-            left ? `, ${left} to go` : ", none left"
-          }`,
+            judged.readReviews ? " (with reviews)" : " (no reviews read)"
+          }${left ? `, ${left} to go` : ", none left"}`,
         });
         return Response.json({
           run: run.id,

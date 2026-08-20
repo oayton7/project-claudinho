@@ -558,7 +558,11 @@ export async function getCandidate(asin: string): Promise<ScoutCandidateRow | nu
  * of them is bought first — if a cap stops the run halfway, it stops having
  * spent the money on the strongest, not the alphabetically luckiest.
  */
-export async function nextToJudge(): Promise<{ asin: string; score: number } | null> {
+export async function nextToJudge(): Promise<{
+  asin: string;
+  score: number;
+  hasReviews: boolean;
+} | null> {
   const db = getDb();
   const { data, error } = await db
     .from("scout_candidates")
@@ -567,10 +571,33 @@ export async function nextToJudge(): Promise<{ asin: string; score: number } | n
     .eq("triage_verdict", "TEST")
     .is("judge_verdict", null)
     .order("score", { ascending: false })
-    .limit(1);
+    .limit(200);
   if (error) throw new Error(`Could not find anything to judge: ${error.message}`);
-  const row = (data ?? [])[0] as { asin: string; score: number } | undefined;
-  return row ?? null;
+
+  const waiting = (data ?? []) as { asin: string; score: number }[];
+  if (waiting.length === 0) return null;
+
+  // Candidates with reviews collected go first, regardless of score.
+  //
+  // The thesis being tested is proven demand executed badly, and the strongest
+  // evidence for it is what buyers actually complain about. A judgement made
+  // without reviews is the Judge reasoning from a listing and a rating, and it
+  // says so. Spending ten pence on the blind version of a product whose
+  // reviews are sitting in the next table, and then paying again once they
+  // arrive, is the expensive way round.
+  const { data: reviewed } = await db
+    .from("reviews")
+    .select("asin")
+    .eq("user_id", currentUserId())
+    .in(
+      "asin",
+      waiting.map((w) => w.asin),
+    );
+  const withReviews = new Set((reviewed ?? []).map((r) => (r as { asin: string }).asin));
+
+  const best =
+    waiting.find((w) => withReviews.has(w.asin)) ?? waiting[0];
+  return { ...best, hasReviews: withReviews.has(best.asin) };
 }
 
 /**
