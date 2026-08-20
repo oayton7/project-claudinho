@@ -51,8 +51,22 @@ export function keepaMinutesToDate(minutes: number): Date {
   return new Date((minutes + KEEPA_EPOCH_OFFSET_MINUTES) * 60 * 1000);
 }
 
-export class MissingKeepaKey extends Error {}
-export class KeepaTokensExhausted extends Error {}
+export class MissingKeepaKey extends Error {
+  constructor(
+    message = "KEEPA_API_KEY is not set. Get it from keepa.com/#!api once subscribed, then add it to Vercel's environment variables and .env.local.",
+  ) {
+    super(message);
+    this.name = "MissingKeepaKey";
+  }
+}
+export class KeepaTokensExhausted extends Error {
+  constructor(
+    message = "Keepa is out of tokens. The bucket refills at about twenty a minute, so this resolves on its own — a run left queued will pick up where it stopped.",
+  ) {
+    super(message);
+    this.name = "KeepaTokensExhausted";
+  }
+}
 
 /**
  * Deliberately conservative. A cheap plan generates 20 tokens a minute, so
@@ -81,6 +95,29 @@ function getKey(): string {
     );
   }
   return key;
+}
+
+
+/**
+ * Read a Keepa response as JSON, or say who is at fault.
+ *
+ * Keepa returning HTML is what an outage or a proxy looks like, and a bare
+ * "Unexpected token '<'" sends whoever reads it to the parser rather than to
+ * Keepa. One helper rather than a guard at each call site, because the one
+ * site that gets forgotten is the one that fails at three in the morning.
+ */
+async function keepaJson(
+  response: Response,
+  what: string,
+): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error(
+      `Keepa returned something that is not JSON when asked for ${what} (${text.slice(0, 80).replace(/\s+/g, " ")}). That usually means an outage or a proxy in the way rather than a problem with the request.`,
+    );
+  }
 }
 
 /**
@@ -132,7 +169,7 @@ export async function fetchProductRaw(
     );
   }
 
-  const raw = (await response.json()) as Record<string, unknown>;
+  const raw = await keepaJson(response, "a product");
   const tokensLeft =
     typeof raw.tokensLeft === "number" ? raw.tokensLeft : null;
 
@@ -382,7 +419,7 @@ export async function findProducts(
     );
   }
 
-  const raw = (await response.json()) as Record<string, unknown>;
+  const raw = await keepaJson(response, "a product search");
 
   const asins = Array.isArray(raw.asinList) ? (raw.asinList as string[]) : [];
 
@@ -444,7 +481,7 @@ export async function categoriesForAsins(
     );
   }
 
-  const raw = (await response.json()) as Record<string, unknown>;
+  const raw = await keepaJson(response, "categories for some ASINs");
   const products = (raw.products ?? []) as Record<string, unknown>[];
 
   const found = new Map<number, { id: number; name: string; fromAsin: string }>();
@@ -532,7 +569,7 @@ export async function searchCategories(
     );
   }
 
-  const raw = (await response.json()) as Record<string, unknown>;
+  const raw = await keepaJson(response, "a category search");
   return {
     categories: parseCategoryObject(raw),
     tokensLeft: typeof raw.tokensLeft === "number" ? raw.tokensLeft : null,
@@ -564,7 +601,7 @@ export async function lookUpCategory(
     );
   }
 
-  const raw = (await response.json()) as Record<string, unknown>;
+  const raw = await keepaJson(response, "a category");
   return {
     categories: parseCategoryObject(raw),
     tokensLeft: typeof raw.tokensLeft === "number" ? raw.tokensLeft : null,
@@ -598,7 +635,7 @@ export async function bestSellers(
     );
   }
 
-  const raw = (await response.json()) as Record<string, unknown>;
+  const raw = await keepaJson(response, "best sellers");
   const list = raw.bestSellersList as Record<string, unknown> | undefined;
 
   return {
@@ -738,7 +775,7 @@ export async function findUsRisers(filters: RiserFilters = {}): Promise<{
     );
   }
 
-  const raw = (await response.json()) as Record<string, unknown>;
+  const raw = await keepaJson(response, "US risers");
   const asins = Array.isArray(raw.asinList) ? (raw.asinList as string[]) : [];
 
   return {

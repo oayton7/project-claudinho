@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "verify": "node --experimental-strip-types scripts/verify-margin.mts && node --experimental-strip-types scripts/verify-score.mts",
+    "verify": "node --experimental-strip-types scripts/verify-margin.mts && node --experimental-strip-types scripts/verify-score.mts && node --experimental-strip-types scripts/verify-failures.mts",
     "migrations": "node --experimental-strip-types scripts/build-migrations.mts"
   },
   "dependencies": {
