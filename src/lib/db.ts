@@ -774,3 +774,75 @@ export async function promoteCandidate(asin: string): Promise<{
 
   return { productId, alreadyPromoted: false };
 }
+
+
+/**
+ * The rate guard, counted where every process can see it.
+ *
+ * The guards this replaces were arrays in module scope — a counter per
+ * serverless process. Vercel runs many and recycles them constantly, so
+ * "40 calls an hour" meant 40 per process per hour: no limit at all, and it
+ * looked like protection the whole time.
+ *
+ * Incremented inside the database rather than read-then-written from here,
+ * because two processes at the boundary must not both read 39 and both
+ * proceed.
+ *
+ * Fails open on a database error, deliberately. A guard that stops all work
+ * when the counter is unreachable turns a monitoring problem into an outage,
+ * and the spend caps on a run are the real defence — this is a backstop.
+ */
+export async function checkApiBudget(
+  kind: "judge" | "triage" | "keepa",
+  limitPerHour: number,
+  pence = 0,
+): Promise<{ allowed: boolean; callsThisHour: number }> {
+  try {
+    const db = getDb();
+    const { data, error } = await db.rpc("bump_api_usage", {
+      p_kind: kind,
+      p_limit: limitPerHour,
+      p_pence: pence,
+    });
+    if (error) return { allowed: true, callsThisHour: 0 };
+
+    const row = (data as { allowed: boolean; calls_now: number }[] | null)?.[0];
+    return {
+      allowed: row?.allowed ?? true,
+      callsThisHour: row?.calls_now ?? 0,
+    };
+  } catch {
+    return { allowed: true, callsThisHour: 0 };
+  }
+}
+
+/** What has been spent this hour and today, for /api/health. */
+export async function apiUsageSummary(): Promise<Record<string, unknown>> {
+  const db = getDb();
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await db
+    .from("api_usage")
+    .select("kind, hour, calls, pence")
+    .gte("hour", since)
+    .order("hour", { ascending: false });
+
+  if (error) return { error: error.message };
+
+  const rows = (data ?? []) as { kind: string; calls: number; pence: number }[];
+  const byKind: Record<string, { calls: number; pence: number }> = {};
+  for (const r of rows) {
+    const held = byKind[r.kind] ?? { calls: 0, pence: 0 };
+    held.calls += r.calls;
+    held.pence += Number(r.pence);
+    byKind[r.kind] = held;
+  }
+
+  return {
+    last24h: Object.fromEntries(
+      Object.entries(byKind).map(([k, v]) => [
+        k,
+        { calls: v.calls, pence: Math.round(v.pence * 100) / 100 },
+      ]),
+    ),
+  };
+}

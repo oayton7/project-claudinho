@@ -44,7 +44,15 @@ export async function GET() {
 
   const watchdog = process.env.WATCHDOG_SECRET?.trim();
 
+  // What has actually been spent, rather than what the guards would allow.
+  // Estimates on this project have been wrong by 5x before.
+  const { apiUsageSummary } = await import("@/lib/db");
+  const usage = await apiUsageSummary().catch((e) => ({
+    error: e instanceof Error ? e.message : "unavailable",
+  }));
+
   return Response.json({
+    usage,
     watchdog: {
       configured: Boolean(watchdog),
       note: watchdog

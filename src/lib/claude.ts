@@ -82,10 +82,26 @@ export function priceIt(usage: {
   };
 }
 
-/** Wraps every call so the guard cannot be bypassed by forgetting it. */
+/**
+ * Wraps every call so the guard cannot be bypassed by forgetting it.
+ *
+ * Two guards now, and only the second is real. The in-process counter catches
+ * a runaway loop inside one invocation; the database counter is the one that
+ * holds across the many processes Vercel runs, where a per-process limit of 40
+ * an hour was really no limit at all.
+ */
 export async function guarded<T>(fn: (client: Anthropic) => Promise<T>): Promise<T> {
   const client = getClient();
   checkRate();
+
+  const { checkApiBudget } = await import("./db");
+  const budget = await checkApiBudget("judge", CALL_LIMIT_PER_HOUR);
+  if (!budget.allowed) {
+    throw new RateLimited(
+      `${budget.callsThisHour} deep judgements already this hour, against a limit of ${CALL_LIMIT_PER_HOUR}. At roughly 10p each that is about £${((budget.callsThisHour * 10) / 100).toFixed(2)} of spend. Counted in the database, so it holds across every serverless instance rather than per process. Raise it in src/lib/claude.ts.`,
+    );
+  }
+
   return fn(client);
 }
 
@@ -160,5 +176,14 @@ export async function guardedTriage<T>(
 ): Promise<T> {
   const client = getClient();
   checkTriageRate();
+
+  const { checkApiBudget } = await import("./db");
+  const budget = await checkApiBudget("triage", TRIAGE_LIMIT_PER_HOUR);
+  if (!budget.allowed) {
+    throw new RateLimited(
+      `${budget.callsThisHour} triage calls already this hour, against a limit of ${TRIAGE_LIMIT_PER_HOUR}. At roughly 0.2p each that is about ${(budget.callsThisHour * 0.2).toFixed(0)}p — a bug guard rather than a budget. Wait, or raise it in src/lib/claude.ts.`,
+    );
+  }
+
   return fn(client);
 }
