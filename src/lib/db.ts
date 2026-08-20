@@ -791,6 +791,32 @@ export async function resumeRun(id: string): Promise<{ status: string; note: str
 }
 
 /**
+ * How many candidates have reached each verdict.
+ *
+ * The number the whole thing exists to move: fifty qualified before any more
+ * features. Counts only — head requests, so no rows cross the wire and this
+ * stays safe on an endpoint that answers before the password gate.
+ */
+async function verdictCounts(): Promise<Record<string, number>> {
+  const db = getDb();
+  const counts: Record<string, number> = {};
+  for (const verdict of ["TEST", "PARK", "KILL"] as const) {
+    const { count } = await db
+      .from("scout_candidates")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", currentUserId())
+      .eq("verdict", verdict);
+    counts[verdict.toLowerCase()] = count ?? 0;
+  }
+  const { count: total } = await db
+    .from("scout_candidates")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", currentUserId());
+  counts.seen = total ?? 0;
+  return counts;
+}
+
+/**
  * What the pipeline looks like right now, for /api/health.
  *
  * Answers the question you actually have at 8am: did anything run overnight,
@@ -860,6 +886,7 @@ export async function runHealth(): Promise<Record<string, unknown>> {
       minutesQuiet: minutesSince(r.last_tick_at ?? r.updated_at),
     })),
     failed: runs.filter((r) => r.status === "failed").length,
+    qualified: await verdictCounts(),
     // Keepa's own count, from whichever run saw it last. Nothing here spends a
     // token to ask.
     keepaTokensLeft:
