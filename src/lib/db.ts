@@ -812,16 +812,31 @@ export async function runHealth(): Promise<Record<string, unknown>> {
   const active = runs.filter((r) =>
     ["queued", "finding", "sweeping", "triaging"].includes(r.status),
   );
-  const STUCK_AFTER_MS = 15 * 60 * 1000;
-  const now = Date.now();
-  const stuck = active.filter((r) => {
-    const beat = r.last_tick_at ?? r.updated_at;
-    return beat ? now - new Date(beat).getTime() > STUCK_AFTER_MS : false;
-  });
 
-  const latest = runs[0];
+  const now = Date.now();
   const minutesSince = (iso?: string | null) =>
     iso ? Math.round((now - new Date(iso).getTime()) / 60000) : null;
+
+  // A watchdog turn works the queue for about four minutes and then hands
+  // back, taking whichever run is oldest each slice. So with several
+  // outstanding, any one of them can sit untouched for a while — that is the
+  // rotation working, not a fault.
+  //
+  // The first version of this flagged each of those as stuck, which would have
+  // sent someone hunting a broken watchdog while it was running perfectly.
+  // What actually matters is whether *anything* is ticking: if nothing has for
+  // fifteen minutes, the watchdog has missed two turns and nobody is driving.
+  const STALLED_AFTER_MIN = 15;
+  const beats = runs
+    .map((r) => minutesSince(r.last_tick_at ?? r.updated_at))
+    .filter((m): m is number => m !== null);
+  const minutesSinceAnyTick = beats.length ? Math.min(...beats) : null;
+  const stalled =
+    active.length > 0 &&
+    minutesSinceAnyTick !== null &&
+    minutesSinceAnyTick > STALLED_AFTER_MIN;
+
+  const latest = runs[0];
 
   return {
     lastRun: latest
@@ -834,23 +849,26 @@ export async function runHealth(): Promise<Record<string, unknown>> {
           spentPence: Number(latest.spent_pence),
         }
       : null,
-    queued: active.length,
-    stuck: stuck.length,
-    stuckRuns: stuck.map((r) => ({
+    outstanding: active.length,
+    minutesSinceAnyTick,
+    stalled,
+    // Named "waiting" rather than "stuck": one is being worked, the rest are
+    // queued behind it by design.
+    waiting: active.map((r) => ({
       id: r.id,
       status: r.status,
       minutesQuiet: minutesSince(r.last_tick_at ?? r.updated_at),
     })),
+    failed: runs.filter((r) => r.status === "failed").length,
     // Keepa's own count, from whichever run saw it last. Nothing here spends a
     // token to ask.
     keepaTokensLeft:
       runs.find((r) => r.keepa_tokens_left !== null)?.keepa_tokens_left ?? null,
-    note:
-      stuck.length > 0
-        ? "A run has gone quiet for more than fifteen minutes. Check the GitHub Actions schedule is still enabled, then use Resume on /runs."
-        : active.length > 0
-          ? "Work outstanding, and something is driving it."
-          : "Nothing waiting.",
+    note: stalled
+      ? `Nothing has ticked in ${minutesSinceAnyTick} minutes with ${active.length} run(s) outstanding. The watchdog fires every ten, so it has missed two turns — check the schedule is still enabled on GitHub, then use Resume on /runs.`
+      : active.length > 0
+        ? `${active.length} run(s) outstanding and something is driving them. One tick works one run for about four minutes, so a queue this size takes roughly ${active.length * 10} minutes to come round again.`
+        : "Nothing waiting.",
   };
 }
 

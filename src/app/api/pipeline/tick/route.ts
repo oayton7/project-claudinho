@@ -466,7 +466,16 @@ export async function POST(request: Request) {
     // A rate limit ends this invocation rather than spinning against it. The
     // next one, minutes later, finds tokens waiting.
     if (result.idle || result.error || result.waiting) break;
-    if (["done", "failed", "halted"].includes(String(result.status))) break;
+
+    // One run reaching the end is not a reason to stop working. When no
+    // particular run was asked for, the next slice claims whatever is oldest,
+    // so the invocation carries on down the queue and only stops when there is
+    // genuinely nothing left — which comes back as idle, above.
+    //
+    // This used to break outright. With four runs outstanding, finishing the
+    // first abandoned the other three until the watchdog fired again, wasting
+    // most of a four minute budget and up to ten minutes of wall clock.
+    if (body.runId && ["done", "failed", "halted"].includes(String(result.status))) break;
   }
 
   return Response.json({ slices, seconds: Math.round((Date.now() - started) / 1000) });
