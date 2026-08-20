@@ -23,6 +23,28 @@ export type { Stage, ProductRow } from "./stages";
 
 export class MissingDatabaseConfig extends Error {}
 
+/**
+ * Who owns the rows this process is reading and writing.
+ *
+ * There is one user and no login. This exists so that when there is a second,
+ * nothing in the codebase has to be found and changed — every query already
+ * filters, every insert already stamps, and the row-level security policies
+ * are already written and enabled rather than switched on for the first time
+ * on the day it matters.
+ *
+ * The service-role key bypasses row-level security, so the policies are not
+ * what is protecting anything today. These filters are. That is worth being
+ * honest about: the belt is application code and the braces are policies that
+ * only bite once this connects through a user-scoped client.
+ */
+export const SEED_USER_ID = "00000000-0000-0000-0000-000000000001";
+
+export function currentUserId(): string {
+  // Behind a shared password there is exactly one. When auth arrives this
+  // reads the session instead, and nothing else in this file changes.
+  return SEED_USER_ID;
+}
+
 export function getDb() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -246,7 +268,11 @@ export async function saveScoutCandidates(candidates: ScoutCandidateInput[]) {
 
   const db = getDb();
   const { error } = await db.from("scout_candidates").upsert(
-    candidates.map((c) => ({ ...c, last_seen: new Date().toISOString() })),
+    candidates.map((c) => ({
+      ...c,
+      last_seen: new Date().toISOString(),
+      user_id: currentUserId(),
+    })),
     { onConflict: "asin" },
   );
 
@@ -309,7 +335,10 @@ export async function saveReviews(input: Partial<ReviewRow> & { asin: string }) 
   const db = getDb();
   const { error } = await db
     .from("reviews")
-    .upsert({ ...input, updated_at: new Date().toISOString() }, { onConflict: "asin" });
+    .upsert(
+      { ...input, updated_at: new Date().toISOString(), user_id: currentUserId() },
+      { onConflict: "asin" },
+    );
   if (error) throw new Error(`Could not save reviews: ${error.message}`);
 }
 
@@ -318,6 +347,7 @@ export async function getReviews(asin: string): Promise<ReviewRow | null> {
   const { data, error } = await db
     .from("reviews")
     .select("*")
+    .eq("user_id", currentUserId())
     .eq("asin", asin)
     .maybeSingle();
   if (error) throw new Error(`Could not load reviews: ${error.message}`);
@@ -368,6 +398,7 @@ export async function findCachedCategories(term: string): Promise<CategoryRow[]>
   const { data, error } = await db
     .from("keepa_categories")
     .select("*")
+    .eq("user_id", currentUserId())
     .ilike("name", `%${term}%`)
     .order("product_count", { ascending: false, nullsFirst: false })
     .limit(50);
@@ -382,6 +413,7 @@ export async function listCategoryPicks(): Promise<
   const { data, error } = await db
     .from("category_picks")
     .select("cat_id, name")
+    .eq("user_id", currentUserId())
     .order("picked_at", { ascending: true });
   if (error) throw new Error(`Could not read picks: ${error.message}`);
   return (data ?? []) as { cat_id: number; name: string }[];
@@ -400,7 +432,10 @@ export async function setCategoryPick(
   }
   const { error } = await db
     .from("category_picks")
-    .upsert({ cat_id: catId, name }, { onConflict: "cat_id" });
+    .upsert(
+      { cat_id: catId, name, user_id: currentUserId() },
+      { onConflict: "cat_id" },
+    );
   if (error) throw new Error(`Could not pick: ${error.message}`);
 }
 
@@ -445,6 +480,7 @@ export async function listShortlist(
   let query = db
     .from("scout_candidates")
     .select("*")
+    .eq("user_id", currentUserId())
     .eq("dismissed", false)
     .order("score", { ascending: false, nullsFirst: false })
     .limit(300);
@@ -508,6 +544,7 @@ export async function getCandidate(asin: string): Promise<ScoutCandidateRow | nu
   const { data, error } = await db
     .from("scout_candidates")
     .select("*")
+    .eq("user_id", currentUserId())
     .eq("asin", asin)
     .maybeSingle();
   if (error) throw new Error(`Could not load ${asin}: ${error.message}`);
@@ -564,6 +601,7 @@ export async function alreadyCovered(): Promise<{
   const { data, error } = await db
     .from("scout_candidates")
     .select("asin, category, triage_verdict")
+    .eq("user_id", currentUserId())
     .limit(5000);
 
   if (error) throw new Error(`Could not read what is covered: ${error.message}`);
@@ -611,7 +649,7 @@ export async function createRun(params: Record<string, unknown>, capPence: numbe
   const db = getDb();
   const { data, error } = await db
     .from("runs")
-    .insert({ params, cap_pence: capPence })
+    .insert({ params, cap_pence: capPence, user_id: currentUserId() })
     .select()
     .single();
   if (error) throw new Error(`Could not create the run: ${error.message}`);
@@ -620,7 +658,12 @@ export async function createRun(params: Record<string, unknown>, capPence: numbe
 
 export async function getRun(id: string): Promise<RunRow | null> {
   const db = getDb();
-  const { data, error } = await db.from("runs").select("*").eq("id", id).maybeSingle();
+  const { data, error } = await db
+    .from("runs")
+    .select("*")
+    .eq("user_id", currentUserId())
+    .eq("id", id)
+    .maybeSingle();
   if (error) throw new Error(`Could not load the run: ${error.message}`);
   return (data as RunRow) ?? null;
 }
@@ -636,6 +679,7 @@ export async function nextRunnable(): Promise<RunRow | null> {
   const { data, error } = await db
     .from("runs")
     .select("*")
+    .eq("user_id", currentUserId())
     .in("status", ["queued", "finding", "sweeping", "triaging"])
     .order("updated_at", { ascending: true })
     .limit(1);
@@ -657,6 +701,7 @@ export async function nextRunnable(): Promise<RunRow | null> {
   const { data: stalled, error: stalledError } = await db
     .from("runs")
     .select("*")
+    .eq("user_id", currentUserId())
     .eq("status", "failed")
     .or("error.ilike.%429%,error.ilike.%token%")
     .order("updated_at", { ascending: true })
@@ -692,6 +737,7 @@ export async function listRuns(limit = 20): Promise<RunRow[]> {
   const { data, error } = await db
     .from("runs")
     .select("*")
+    .eq("user_id", currentUserId())
     .order("created_at", { ascending: false })
     .limit(limit);
   if (error) throw new Error(`Could not list runs: ${error.message}`);
