@@ -68,6 +68,12 @@ export default function Home() {
             Shortlist →
           </Link>
           <Link
+            href="/playbook"
+            className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
+          >
+            Playbook →
+          </Link>
+          <Link
             href="/sweep"
             className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
           >

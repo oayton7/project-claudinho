@@ -117,7 +117,7 @@ export function toFeeCategory(name: string | null | undefined): FeeCategory {
 // ── Referral fees ──────────────────────────────────────────────────────────
 
 /** Ordered bands. The first whose ceiling covers the price wins. */
-const REFERRAL_BANDS: Record<FeeCategory, { upTo: number; pct: number }[]> = {
+export const REFERRAL_BANDS: Record<FeeCategory, { upTo: number; pct: number }[]> = {
   // The 2026 cut applies to Home and not to the categories people assume are
   // the same. Garden and DIY look adjacent and are charged 15% at every price.
   home: [{ upTo: 20, pct: 8 }, { upTo: Infinity, pct: 15 }],
@@ -186,7 +186,7 @@ export function referralFee(category: FeeCategory, sellPrice: number): Fee {
  * spread is Amazon's own banding within the tier and guessing the bottom of it
  * is the flattering error.
  */
-const FBA_TIERS = [
+export const FBA_TIERS = [
   { name: "Light envelope", mm: [330, 230, 25], maxG: 100, standard: 2.08, lowPrice: 1.7 },
   { name: "Standard envelope", mm: [330, 230, 25], maxG: 460, standard: 2.16, lowPrice: 1.87 },
   { name: "Large envelope", mm: [330, 230, 40], maxG: 960, standard: 2.72, lowPrice: 2.42 },
