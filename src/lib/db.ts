@@ -552,6 +552,43 @@ export async function getCandidate(asin: string): Promise<ScoutCandidateRow | nu
 }
 
 /**
+ * The next candidate worth an expensive opinion.
+ *
+ * Triage said TEST and nobody has judged it yet. Ordered by score so the best
+ * of them is bought first — if a cap stops the run halfway, it stops having
+ * spent the money on the strongest, not the alphabetically luckiest.
+ */
+export async function nextToJudge(): Promise<{ asin: string; score: number } | null> {
+  const db = getDb();
+  const { data, error } = await db
+    .from("scout_candidates")
+    .select("asin, score")
+    .eq("user_id", currentUserId())
+    .eq("triage_verdict", "TEST")
+    .is("judge_verdict", null)
+    .order("score", { ascending: false })
+    .limit(1);
+  if (error) throw new Error(`Could not find anything to judge: ${error.message}`);
+  const row = (data ?? [])[0] as { asin: string; score: number } | undefined;
+  return row ?? null;
+}
+
+/**
+ * How many are still queued for the Judge, for reporting progress.
+ */
+export async function countToJudge(): Promise<number> {
+  const db = getDb();
+  const { count, error } = await db
+    .from("scout_candidates")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", currentUserId())
+    .eq("triage_verdict", "TEST")
+    .is("judge_verdict", null);
+  if (error) throw new Error(`Could not count what is left to judge: ${error.message}`);
+  return count ?? 0;
+}
+
+/**
  * The expensive opinion, stored so it is bought once.
  *
  * Written to its own columns, like every other stage, so a re-sweep refreshing
@@ -627,7 +664,15 @@ export type RunRow = {
   id: string;
   created_at: string;
   updated_at: string;
-  status: "queued" | "finding" | "sweeping" | "triaging" | "done" | "failed" | "halted";
+  status:
+    | "queued"
+    | "finding"
+    | "sweeping"
+    | "triaging"
+    | "judging"
+    | "done"
+    | "failed"
+    | "halted";
   stage_detail: string;
   params: Record<string, unknown>;
   categories: { id: number; name: string; risers: number }[];
@@ -645,11 +690,25 @@ export type RunRow = {
   last_tick_at: string | null;
 };
 
-export async function createRun(params: Record<string, unknown>, capPence: number) {
+export async function createRun(
+  params: Record<string, unknown>,
+  capPence: number,
+  // Starting at "judging" skips finding and sweeping, for clearing a backlog
+  // of candidates that already passed triage. Keepa costs nothing on that
+  // path, which matters when the token bucket is empty.
+  startAt: RunRow["status"] = "queued",
+) {
   const db = getDb();
   const { data, error } = await db
     .from("runs")
-    .insert({ params, cap_pence: capPence, user_id: currentUserId() })
+    .insert({
+      params,
+      cap_pence: capPence,
+      user_id: currentUserId(),
+      status: startAt,
+      stage_detail:
+        startAt === "judging" ? "judging what already passed triage" : "queued",
+    })
     .select()
     .single();
   if (error) throw new Error(`Could not create the run: ${error.message}`);
@@ -680,7 +739,7 @@ export async function nextRunnable(): Promise<RunRow | null> {
     .from("runs")
     .select("*")
     .eq("user_id", currentUserId())
-    .in("status", ["queued", "finding", "sweeping", "triaging"])
+    .in("status", ["queued", "finding", "sweeping", "triaging", "judging"])
     .order("updated_at", { ascending: true })
     .limit(1);
   if (error) throw new Error(`Could not find a run: ${error.message}`);
@@ -766,7 +825,7 @@ export async function resumeRun(id: string): Promise<{ status: string; note: str
   const run = await getRun(id);
   if (!run) throw new Error("That run no longer exists.");
 
-  if (["queued", "finding", "sweeping", "triaging"].includes(run.status)) {
+  if (["queued", "finding", "sweeping", "triaging", "judging"].includes(run.status)) {
     return { status: run.status, note: "Already in the queue — nothing to resume." };
   }
   if (run.status === "done") {
@@ -857,7 +916,7 @@ export async function runHealth(): Promise<Record<string, unknown>> {
 
   const runs = (data ?? []) as RunRow[];
   const active = runs.filter((r) =>
-    ["queued", "finding", "sweeping", "triaging"].includes(r.status),
+    ["queued", "finding", "sweeping", "triaging", "judging"].includes(r.status),
   );
 
   const now = Date.now();

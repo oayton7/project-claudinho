@@ -13,7 +13,11 @@ export async function POST(request: Request) {
     const params = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const capPence = Number(params.capPence) > 0 ? Number(params.capPence) : 100;
 
-    const run = await createRun(params, capPence);
+    // A judge-only run works through candidates that already passed triage,
+    // without spending a Keepa token finding more. The backlog exists because
+    // the Judge was never a stage: triage said TEST and nothing followed.
+    const judgeOnly = params.stage === "judging";
+    const run = await createRun(params, capPence, judgeOnly ? "judging" : "queued");
 
     // Deliberately not started here. Kicking it from this request would put
     // the work back inside a request, which is what the job architecture
@@ -25,7 +29,9 @@ export async function POST(request: Request) {
       run: run.id,
       status: run.status,
       capPence,
-      note: "Queued. Press Work the queue on /runs to start it now, or leave it for the watchdog.",
+      note: judgeOnly
+        ? `Queued for judging only, up to ${capPence}p at roughly 10p each. Press Work the queue on /runs to start it now, or leave it for the watchdog.`
+        : "Queued. Press Work the queue on /runs to start it now, or leave it for the watchdog.",
     });
   } catch (error) {
     return Response.json({ error: describeError(error) }, { status: 502 });

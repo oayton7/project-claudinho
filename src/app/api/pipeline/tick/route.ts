@@ -13,6 +13,7 @@ import {
   judgeFreely,
 } from "@/lib/candidate";
 import { isMedia } from "@/lib/exclusions";
+import { judgeOne } from "@/lib/deep-judge";
 import {
   alreadyCovered,
   getCandidate,
@@ -22,6 +23,8 @@ import {
   saveTriageVerdict,
   updateRun,
   type RunRow,
+  nextToJudge,
+  countToJudge,
 } from "@/lib/db";
 import { KeepaTokensExhausted } from "@/lib/keepa";
 import {
@@ -380,16 +383,80 @@ async function doOneSlice(request: Request, runId?: string) {
         triage_cursor: cursor,
         triaged: judged,
         spent_pence: spent,
-        status: finished ? "done" : "triaging",
-        stage_detail: finished ? "finished" : `${run.triage_queue.length - cursor} left to judge`,
+        status: finished ? "judging" : "triaging",
+        stage_detail: finished
+          ? "triage done, handing the survivors to the Judge"
+          : `${run.triage_queue.length - cursor} left to triage`,
       });
 
-      if (!finished) return Response.json({
+      return Response.json({
         run: run.id,
-        status: finished ? "done" : "triaging",
-        judgedThisTick: slice.length,
+        status: finished ? "judging" : "triaging",
+        triagedThisTick: slice.length,
         spentPence: Math.round(spent * 100) / 100,
       });
+    }
+
+    // ── Stage: the expensive opinion ────────────────────────────────────
+    //
+    // Triage is Sonnet at about 0.2p deciding whether a product deserves a
+    // real review. This is the real review: Opus at about 10p, one at a time
+    // because each takes over a minute.
+    //
+    // The brief asked for this as a stage in session 5 and it never got wired
+    // in, so runs finished at triage and the expensive opinion only ever
+    // happened when someone pressed a button. Judged candidates: two.
+    if (run.status === "judging") {
+      const spent = Number(run.spent_pence);
+
+      // Checked before the call, not after. Ten pence is not much until it is
+      // ten pence forty times over.
+      if (spent >= run.cap_pence) {
+        await updateRun(run.id, {
+          status: "halted",
+          stage_detail: `stopped at the ${run.cap_pence}p cap with ${await countToJudge()} still to judge`,
+        });
+        return Response.json({ run: run.id, status: "halted", reason: "cap" });
+      }
+
+      const next = await nextToJudge();
+      if (!next) {
+        await updateRun(run.id, { status: "done", stage_detail: "finished" });
+        return Response.json({ run: run.id, status: "done" });
+      }
+
+      try {
+        const judged = await judgeOne(next.asin);
+        const now = spent + judged.cost.costPence;
+        const left = await countToJudge();
+        await updateRun(run.id, {
+          spent_pence: now,
+          stage_detail: `judged ${next.asin}: ${judged.judgement.verdict}${
+            left ? `, ${left} to go` : ", none left"
+          }`,
+        });
+        return Response.json({
+          run: run.id,
+          status: "judging",
+          asin: next.asin,
+          verdict: judged.judgement.verdict,
+          readReviews: judged.readReviews,
+          spentPence: Math.round(now * 100) / 100,
+          leftToJudge: left,
+        });
+      } catch (error) {
+        // One product failing is not the run failing — unless it failed
+        // *after* paying, which judgeOne says so in the message and which
+        // needs a person.
+        const message = describeError(error);
+        const paidButLost = message.includes("could not store it");
+        await updateRun(run.id, {
+          status: paidButLost ? "failed" : "judging",
+          stage_detail: `${next.asin}: ${message}`,
+          error: paidButLost ? message : null,
+        });
+        return Response.json({ run: run.id, status: paidButLost ? "failed" : "judging", note: message });
+      }
     }
 
     return Response.json({ run: run.id, status: run.status, note: "Nothing to do for this status." });
