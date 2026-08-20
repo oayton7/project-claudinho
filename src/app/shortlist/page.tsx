@@ -17,6 +17,77 @@ export default function ShortlistPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [deepening, setDeepening] = useState<string | null>(null);
+  const [promoting, setPromoting] = useState<string | null>(null);
+
+  /**
+   * Move a candidate onto the products board.
+   *
+   * Everything it needs is already on the row, which is the point — the break
+   * this closes was a candidate surviving the whole chain and still having to
+   * be retyped by hand.
+   */
+  async function promote(asin: string) {
+    setPromoting(asin);
+    setError("");
+    try {
+      const response = await fetch("/api/shortlist/promote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ asin }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error ?? "Could not promote");
+        return;
+      }
+      await load();
+    } catch {
+      setError("Could not reach the server.");
+    } finally {
+      setPromoting(null);
+    }
+  }
+
+  /**
+   * Export what is on screen.
+   *
+   * Supplier conversations happen in email and on Alibaba, not in here, and
+   * the one column that matters there is max landed cost — the figure that
+   * turns "how much is this?" into "can you make it for this?".
+   */
+  function exportCsv() {
+    const cols = [
+      "verdict", "score", "asin", "title", "brand", "category",
+      "price", "maxLandedCost", "rating", "reviews", "unhappyBuyers",
+      "monthlySold", "weightG", "improvability", "why", "mainRisk",
+      "listingGaps", "amazonUrl",
+    ];
+    const cell = (v: unknown) => {
+      const t = v === null || v === undefined ? "" : String(v);
+      // Quote everything and double any quotes inside. Reasons contain commas
+      // and the whole file is worthless if one of them shifts a column.
+      return `"${t.replace(/"/g, '""')}"`;
+    };
+    // Computed here rather than reading `shown`, which is declared further
+    // down the component.
+    const visible = showKilled ? rows : rows.filter((r) => !r.killed_reason);
+    const lines = visible.map((r) =>
+      [
+        r.triage_verdict, r.score, r.asin, r.title, r.brand, r.category,
+        r.price, r.max_landed_cost, r.rating, r.review_count, r.unhappy_buyers,
+        r.monthly_sold, r.weight_grams, r.triage_improvability,
+        r.triage_because, r.triage_main_risk, r.listing_weaknesses,
+        `https://www.amazon.co.uk/dp/${r.asin}`,
+      ].map(cell).join(","),
+    );
+    const csv = [cols.join(","), ...lines].join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `claudinho-shortlist-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
   const [open, setOpen] = useState<string | null>(null);
 
   /**
@@ -114,7 +185,14 @@ export default function ShortlistPage() {
               {String(n)} {String(label)}
             </span>
           ))}
-          <label className="ml-auto flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+          <button
+            onClick={exportCsv}
+            disabled={rows.length === 0}
+            className="ml-auto rounded border border-zinc-400 px-3 py-1 text-xs font-medium text-zinc-800 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-200"
+          >
+            Export CSV
+          </button>
+          <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
             <input
               type="checkbox"
               checked={showKilled}
@@ -332,6 +410,19 @@ export default function ShortlistPage() {
                 )}
 
                 <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
+                  {r.promoted_product_id ? (
+                    <span className="rounded bg-emerald-100 px-2.5 py-1 font-medium text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+                      On the products board
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => void promote(r.asin)}
+                      disabled={promoting !== null}
+                      className="rounded bg-black px-2.5 py-1 font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-black"
+                    >
+                      {promoting === r.asin ? "Promoting…" : "Promote to product"}
+                    </button>
+                  )}
                   {!r.judge_summary && (
                     <button
                       onClick={() => void goDeeper(r.asin)}

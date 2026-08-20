@@ -697,3 +697,80 @@ export async function listRuns(limit = 20): Promise<RunRow[]> {
   if (error) throw new Error(`Could not list runs: ${error.message}`);
   return (data ?? []) as RunRow[];
 }
+
+
+/**
+ * Promote a candidate into the products pipeline.
+ *
+ * Break 4 from the plan, open since the column was created. `promoted_product_id`
+ * has existed on scout_candidates from the beginning and nothing has ever
+ * written it, so a candidate that survived the whole chain still had to be
+ * retyped by hand to reach the board. The plan called this the cheapest break
+ * to close and the one that most changes how the tool feels, because it is the
+ * difference between a research toy and something with a memory.
+ *
+ * Idempotent. Promoting twice returns the existing product rather than
+ * creating a second — a double click should not fork a candidate into two
+ * products with the same ASIN.
+ */
+export async function promoteCandidate(asin: string): Promise<{
+  productId: string;
+  alreadyPromoted: boolean;
+}> {
+  const db = getDb();
+
+  const candidate = await getCandidate(asin);
+  if (!candidate) throw new Error(`${asin} is not in the candidates table.`);
+
+  if (candidate.promoted_product_id) {
+    return { productId: candidate.promoted_product_id, alreadyPromoted: true };
+  }
+
+  // Everything the products board needs is already on the candidate row. The
+  // point of promoting is that nothing is retyped.
+  const { data, error } = await db
+    .from("products")
+    .insert({
+      name: candidate.title || asin,
+      category: candidate.category || "",
+      asin,
+      sell_price: candidate.price ?? 0,
+      weight_grams: candidate.weight_grams ?? 0,
+      listing_notes: candidate.listing_weaknesses || "",
+      // Never invented. An empty string means nobody has read the reviews,
+      // which reads differently to the Judge from "the reviews are fine".
+      review_complaints: "",
+      competitor_notes: [
+        candidate.rating !== null ? `Rated ${candidate.rating}` : "",
+        candidate.review_count !== null ? `across ${candidate.review_count} reviews` : "",
+        candidate.monthly_sold !== null ? `, about ${candidate.monthly_sold} sold last month` : "",
+        candidate.max_landed_cost !== null
+          ? `. A unit would have to land under £${Number(candidate.max_landed_cost).toFixed(2)} to clear 15% net.`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .trim(),
+      stage: "candidate",
+    })
+    .select("id")
+    .single();
+
+  if (error) throw new Error(`Could not create the product: ${error.message}`);
+
+  const productId = (data as { id: string }).id;
+
+  // Link it back, which is what stops the candidate resurfacing as new on the
+  // next sweep.
+  const { error: linkError } = await db
+    .from("scout_candidates")
+    .update({ promoted_product_id: productId })
+    .eq("asin", asin);
+  if (linkError) {
+    throw new Error(
+      `The product was created but could not be linked to the candidate: ${linkError.message}. It will resurface as new on the next sweep.`,
+    );
+  }
+
+  return { productId, alreadyPromoted: false };
+}
