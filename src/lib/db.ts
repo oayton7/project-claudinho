@@ -640,7 +640,42 @@ export async function nextRunnable(): Promise<RunRow | null> {
     .order("updated_at", { ascending: true })
     .limit(1);
   if (error) throw new Error(`Could not find a run: ${error.message}`);
-  return ((data ?? [])[0] as RunRow) ?? null;
+
+  const live = ((data ?? [])[0] as RunRow) ?? null;
+  if (live) return live;
+
+  // Nothing live. Look for a run that died of something temporary.
+  //
+  // Runs failed on a Keepa 429 before that was treated as a wait, and they
+  // are stranded: the bucket refilled long ago and nothing will ever pick
+  // them up. A rate limit is not a reason to abandon a run that has already
+  // paid for half its work, so they are resurrected rather than left as
+  // tombstones.
+  //
+  // Only rate limits. A run that failed on a bad request or a broken schema
+  // would fail again, and retrying it forever would hide the real problem.
+  const { data: stalled, error: stalledError } = await db
+    .from("runs")
+    .select("*")
+    .eq("status", "failed")
+    .or("error.ilike.%429%,error.ilike.%token%")
+    .order("updated_at", { ascending: true })
+    .limit(1);
+  if (stalledError) return null;
+
+  const recoverable = ((stalled ?? [])[0] as RunRow) ?? null;
+  if (!recoverable) return null;
+
+  await updateRun(recoverable.id, {
+    status: recoverable.category_cursor > 0 ? "sweeping" : "queued",
+    stage_detail: "resumed after running out of Keepa tokens",
+    error: null,
+  });
+
+  return {
+    ...recoverable,
+    status: recoverable.category_cursor > 0 ? "sweeping" : "queued",
+  };
 }
 
 export async function updateRun(id: string, patch: Partial<RunRow>) {
