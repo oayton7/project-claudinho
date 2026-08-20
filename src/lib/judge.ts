@@ -619,8 +619,15 @@ export const ReviewAnalysisSchema = z.object({
   notFixable: z.array(z.string()).max(6),
   /** 0-10. How much room a better version would actually have. */
   opportunityScore: z.number().min(0).max(10),
-  /** Two or three sentences a person can act on. */
-  summary: z.string().max(600),
+  /**
+   * Two or three sentences a person can act on.
+   *
+   * The cap is generous on purpose. It was 600, and a genuinely good analysis
+   * that ran to 620 was rejected outright and the paid result thrown away.
+   * A length limit is a storage preference, not a correctness rule, and it
+   * should never be the thing that loses an answer.
+   */
+  summary: z.string().max(2000),
 });
 
 export type ReviewAnalysis = z.infer<typeof ReviewAnalysisSchema>;

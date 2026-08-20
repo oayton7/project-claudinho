@@ -99,7 +99,25 @@ export async function POST(request: Request) {
     );
 
     const answer = result.content.find((b) => b.type === "text")?.text ?? "{}";
-    const parsed = ReviewAnalysisSchema.safeParse(JSON.parse(answer));
+
+    // Trim to the caps rather than failing on them.
+    //
+    // Every limit in this schema is a storage preference. Rejecting a sound
+    // analysis because its summary ran twenty characters long, after paying
+    // for it, is the wrong trade in both directions: the money is gone and the
+    // answer is gone with it. Anything genuinely malformed still fails below.
+    const loose = JSON.parse(answer) as Record<string, unknown>;
+    const clampList = (v: unknown, n: number) =>
+      Array.isArray(v) ? v.filter((x) => typeof x === "string").slice(0, n) : v;
+    if (typeof loose.summary === "string" && loose.summary.length > 2000) {
+      loose.summary = `${loose.summary.slice(0, 1997)}...`;
+    }
+    loose.complaints = clampList(loose.complaints, 8);
+    loose.wishedFor = clampList(loose.wishedFor, 6);
+    loose.fixable = clampList(loose.fixable, 6);
+    loose.notFixable = clampList(loose.notFixable, 6);
+
+    const parsed = ReviewAnalysisSchema.safeParse(loose);
 
     if (!parsed.success) {
       // Say which field and why. The old message named neither, so a failure
