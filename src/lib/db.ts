@@ -797,23 +797,44 @@ export async function resumeRun(id: string): Promise<{ status: string; note: str
  * features. Counts only — head requests, so no rows cross the wire and this
  * stays safe on an endpoint that answers before the password gate.
  */
-async function verdictCounts(): Promise<Record<string, number>> {
+async function verdictCounts(): Promise<Record<string, unknown>> {
   const db = getDb();
-  const counts: Record<string, number> = {};
-  for (const verdict of ["TEST", "PARK", "KILL"] as const) {
-    const { count } = await db
-      .from("scout_candidates")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", currentUserId())
-      .eq("verdict", verdict);
-    counts[verdict.toLowerCase()] = count ?? 0;
-  }
-  const { count: total } = await db
+
+  // Counts the given column, and reports a broken query as broken.
+  //
+  // The first version asked for a column named "verdict", which does not
+  // exist — there are three, one per stage. Supabase returned an error and a
+  // null count, and because only the count was read, health cheerfully
+  // reported nought TEST against 298 candidates. A zero that means "no rows"
+  // and a zero that means "your query was wrong" have to look different.
+  const tally = async (column: string) => {
+    const out: Record<string, number | string> = {};
+    for (const verdict of ["TEST", "PARK", "KILL"] as const) {
+      const { count, error } = await db
+        .from("scout_candidates")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", currentUserId())
+        .eq(column, verdict);
+      if (error) return { error: `${column}: ${error.message}` };
+      out[verdict.toLowerCase()] = count ?? 0;
+    }
+    return out;
+  };
+
+  const { count: seen, error } = await db
     .from("scout_candidates")
     .select("*", { count: "exact", head: true })
     .eq("user_id", currentUserId());
-  counts.seen = total ?? 0;
-  return counts;
+
+  return {
+    seen: error ? `error: ${error.message}` : (seen ?? 0),
+    // Free arithmetic, before anything is paid for.
+    scored: await tally("auto_verdict"),
+    // Sonnet, about 0.2p each.
+    triaged: await tally("triage_verdict"),
+    // Opus, about 10p each. This is the fifty that counts.
+    judged: await tally("judge_verdict"),
+  };
 }
 
 /**
@@ -894,7 +915,7 @@ export async function runHealth(): Promise<Record<string, unknown>> {
     note: stalled
       ? `Nothing has ticked in ${minutesSinceAnyTick} minutes with ${active.length} run(s) outstanding. The watchdog fires every ten, so it has missed two turns — check the schedule is still enabled on GitHub, then use Resume on /runs.`
       : active.length > 0
-        ? `${active.length} run(s) outstanding and something is driving them. One tick works one run for about four minutes, so a queue this size takes roughly ${active.length * 10} minutes to come round again.`
+        ? `${active.length} run(s) outstanding and something is driving them. One watchdog turn works the queue for about four minutes, taking the oldest each slice, so they advance together rather than one at a time.`
         : "Nothing waiting.",
   };
 }
