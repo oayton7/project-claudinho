@@ -98,13 +98,22 @@ export async function POST(request: Request) {
       }),
     );
 
-    const parsed = ReviewAnalysisSchema.safeParse(
-      JSON.parse(result.content.find((b) => b.type === "text")?.text ?? "{}"),
-    );
+    const answer = result.content.find((b) => b.type === "text")?.text ?? "{}";
+    const parsed = ReviewAnalysisSchema.safeParse(JSON.parse(answer));
 
     if (!parsed.success) {
+      // Say which field and why. The old message named neither, so a failure
+      // here was indistinguishable from the model being down, and the answer
+      // that had just been paid for was thrown away unread.
+      const problems = parsed.error.issues
+        .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+        .join("; ");
+      console.error("[reviews] schema mismatch", problems, answer.slice(0, 400));
       return Response.json(
-        { error: "The model's answer did not match the expected shape." },
+        {
+          error: `The review analysis came back in the wrong shape — ${problems}. This is a bug in the tool rather than anything you did.`,
+          got: answer.slice(0, 400),
+        },
         { status: 502 },
       );
     }
