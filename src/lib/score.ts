@@ -33,6 +33,10 @@ export type Scorable = {
   rankDrops90: number | null;
   sellers: number | null;
   packageWeightG: number | null;
+  /** Packed dimensions in millimetres, longest edge first once sorted. */
+  packageLengthMm?: number | null;
+  packageWidthMm?: number | null;
+  packageHeightMm?: number | null;
   maxLandedCost: number | null;
   listingWeaknessCount: number;
   usGrowing: boolean | null;
@@ -115,7 +119,10 @@ export const DEFAULT_WEIGHTS: Weights = {
   marginHeadroom: 18,
   velocity: 12,
   priceBand: 8,
-  weight: 7,
+  // Doubled. Weight was worth 7 of 100 while driving three separate costs —
+  // freight, the FBA size band, and how many units a fixed budget buys. A
+  // product that fails on weight fails on economics, not on taste.
+  weight: 14,
   ratingRoom: 5,
   sellers: 3,
   usGrowing: 2,
@@ -189,7 +196,10 @@ export function scoreCandidate(c: Scorable, weights: Weights = DEFAULT_WEIGHTS):
       key: "weight",
       label: "Shipping weight",
       weight: weights.weight ?? 0,
-      score: c.packageWeightG === null ? null : lessIsBetter(c.packageWeightG, 300, 2000),
+      // Full marks to 250g, nothing at a kilo. The old band gave a 1.5kg
+      // product half marks, which is how bulky items kept scoring well on
+      // everything else and surviving.
+      score: c.packageWeightG === null ? null : lessIsBetter(c.packageWeightG, 250, 1000),
       explain:
         c.packageWeightG === null
           ? "no weight on record"
@@ -263,8 +273,38 @@ export function scoreCandidate(c: Scorable, weights: Weights = DEFAULT_WEIGHTS):
 export function hardKill(c: Scorable): string | null {
   if (c.price !== null && c.price < 8)
     return `£${c.price.toFixed(2)} is too low for the fees to leave anything`;
-  if (c.packageWeightG !== null && c.packageWeightG > 3000)
-    return `${c.packageWeightG}g, freight will eat the margin`;
+  // The brief's Gate 0 says over 1kg is a kill and this was set at 3kg, which
+  // is why parasol bases and pool products kept reaching the shortlist.
+  //
+  // 1kg is the right line for a first order on limited capital. Freight is
+  // charged by weight and volume, FBA size bands step up sharply, and a heavy
+  // product ties more capital into fewer units — three costs that compound
+  // rather than add.
+  if (c.packageWeightG !== null && c.packageWeightG > 1000)
+    return `${c.packageWeightG}g. Over a kilo, freight and the FBA size band both step up and the order buys fewer units`;
+
+  // Size, which weight does not catch.
+  //
+  // Nothing checked dimensions at all, so a parasol — light and a metre and a
+  // half long — sailed through a weight test and reached the shortlist. FBA
+  // charges on the box rather than the contents, and Amazon's standard parcel
+  // stops at 45 x 34 x 26cm. Past that the fee steps up hard and sea freight
+  // is priced on volume, so a light bulky product is expensive twice.
+  //
+  // 50cm on the longest edge is the working limit: comfortably inside the
+  // parcel tier with room for packaging.
+  const dims = [c.packageLengthMm, c.packageWidthMm, c.packageHeightMm].filter(
+    (d): d is number => typeof d === "number" && d > 0,
+  );
+  if (dims.length === 3) {
+    const sorted = dims.slice().sort((a, b) => b - a);
+    if (sorted[0] > 500) {
+      return `${Math.round(sorted[0] / 10)}cm on its longest side. Past the standard parcel tier, so the FBA fee steps up and sea freight is charged on the volume`;
+    }
+    if (sorted[0] + sorted[1] + sorted[2] > 900) {
+      return `${Math.round((sorted[0] + sorted[1] + sorted[2]) / 10)}cm of combined dimensions. Bulky enough that freight is charged on volume rather than weight`;
+    }
+  }
   // Raised from £1.50 on 19 Aug 2026. The first working sweep produced a TEST
   // verdict on a product with a £1.90 ceiling — nothing is manufactured,
   // shipped from China, duty-paid and prepped for £1.90, so that verdict was

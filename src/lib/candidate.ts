@@ -21,6 +21,14 @@ export type Candidate = {
   sellers: number | null;
   rankDrops90: number | null;
   packageWeightG: number | null;
+  /**
+   * Packed dimensions, millimetres. FBA charges on the box rather than the
+   * contents, so these matter more than weight — a parasol weighs little and
+   * fits in nothing.
+   */
+  packageLengthMm: number | null;
+  packageWidthMm: number | null;
+  packageHeightMm: number | null;
   unhappyBuyers: number | null;
   maxLandedCost: number | null;
   monthlySold: number | null;
@@ -86,7 +94,15 @@ export function listingWeaknesses(
   }
 
   if (title) {
-    if (title.length > 150) weak.push(`title is ${title.length} chars, keyword stuffed`);
+    // No rule on long titles. Flagging anything over 150 characters as
+    // "keyword stuffed" treated standard Amazon practice as neglect: the
+    // search algorithm genuinely rewards keyword coverage, so a long title is
+    // as often a seller who knows that as one who does not. It was marking
+    // competence as weakness, and worse, rewarding the product for it, since
+    // more weaknesses means more apparent room to improve.
+    //
+    // Repetition below is the honest version of the same idea — a title
+    // saying the same word four times is written for a machine.
     if (title.length < 30) weak.push(`title is only ${title.length} chars, barely tries`);
     // A title that repeats the same word is written for a search engine
     // rather than a person, and it reads that way on the page.
@@ -217,6 +233,9 @@ export function buildCandidate(
     sellers: int(stats.totalOfferCount),
     rankDrops90,
     packageWeightG: weight,
+    packageLengthMm: int(product.packageLength),
+    packageWidthMm: int(product.packageWidth),
+    packageHeightMm: int(product.packageHeight),
     unhappyBuyers,
     maxLandedCost: ceiling,
     monthlySold,
@@ -259,6 +278,9 @@ export function toScorable(c: Candidate): Scorable {
     rankDrops90: c.rankDrops90,
     sellers: c.sellers,
     packageWeightG: c.packageWeightG,
+    packageLengthMm: c.packageLengthMm,
+    packageWidthMm: c.packageWidthMm,
+    packageHeightMm: c.packageHeightMm,
     maxLandedCost: c.maxLandedCost,
     listingWeaknessCount: c.listingWeaknesses.length,
     usGrowing: c.us?.growing ?? null,
