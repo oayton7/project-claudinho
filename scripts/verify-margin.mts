@@ -14,7 +14,8 @@ import {
   fbaFee,
   lowPriceThresholdFor,
 } from "../src/lib/fees.ts";
-import { orderCostAtMoq } from "../src/lib/margin.ts";
+import { orderCostAtMoq, maxLandedCostBothVatStates } from "../src/lib/margin.ts";
+import { toFeeCategory } from "../src/lib/fees.ts";
 import {
   calculateMargin,
   maxLandedCost,
@@ -33,6 +34,12 @@ function expect(label: string, actual: number, wanted: number, tol = 0.01) {
   console.log(
     `${pass ? "  ok  " : " FAIL "} ${label.padEnd(32)} got ${actual}, wanted ${wanted}`,
   );
+}
+
+/** For claims that are true or false rather than a number with a tolerance. */
+function claim(label: string, pass: boolean, detail = "") {
+  if (!pass) failed++;
+  console.log(`${pass ? "  ok  " : " FAIL "} ${label}${detail ? `  — ${detail}` : ""}`);
 }
 
 // ── Suite 1: the plan's worked example, import VAT switched off ──────────────
@@ -296,3 +303,88 @@ if (failed > 0) {
   process.exit(1);
 }
 console.log("\nAll checks passed.");
+
+// ── The VAT cliff ─────────────────────────────────────────────────────────
+//
+// The plan calls this the most important number in it and asks for it as a
+// hard rule in the Judge. These pin the shape of it, because two earlier
+// attempts at the arithmetic looked right and were not: one subtracted output
+// VAT from an already-capped figure, and one compared a VAT-inclusive ceiling
+// against a VAT-exclusive one and reported that registering for VAT made a
+// product cheaper to buy.
+for (const price of [12, 18, 25, 40, 60]) {
+  const r = maxLandedCostBothVatStates(price, { feeCategory: "home" });
+
+  claim(
+    `£${price}: registering never raises what you can pay`,
+    r.marginOnlyRegistered <= r.marginOnlyBelow,
+    `below £${r.marginOnlyBelow.toFixed(2)} vs registered £${r.marginOnlyRegistered.toFixed(2)}`,
+  );
+  claim(
+    `£${price}: the drop is a real cut, not a gain`,
+    r.dropPct >= 0 && r.dropPct <= 100,
+    `${r.dropPct.toFixed(0)}%`,
+  );
+}
+
+// Cheap products are the exposed ones: the VAT taken out of a £12 shelf price
+// is a far bigger share of the headroom than out of a £60 one.
+claim(
+  "the cliff bites harder at low prices",
+  maxLandedCostBothVatStates(18, { feeCategory: "home" }).dropPct >
+    maxLandedCostBothVatStates(60, { feeCategory: "home" }).dropPct,
+  `£18 ${maxLandedCostBothVatStates(18, { feeCategory: "home" }).dropPct.toFixed(0)}% vs £60 ${maxLandedCostBothVatStates(60, { feeCategory: "home" }).dropPct.toFixed(0)}%`,
+);
+
+// A product with no registered headroom at all is the trap the plan describes.
+claim(
+  "a product that only works below the threshold is flagged",
+  maxLandedCostBothVatStates(12, { feeCategory: "home" }).onlyWorksBelowThreshold,
+  maxLandedCostBothVatStates(12, { feeCategory: "home" }).why.slice(0, 80),
+);
+claim(
+  "a product with real headroom is not flagged",
+  !maxLandedCostBothVatStates(40, { feeCategory: "home" }).onlyWorksBelowThreshold,
+);
+
+// ── Category matching ─────────────────────────────────────────────────────
+//
+// A wrong guess here is not cosmetic. An unmatched category falls to "other"
+// at the highest referral rate, which shrinks the landed ceiling, and a
+// shrunken ceiling is what makes a product look like it cannot survive VAT
+// registration. Bad matching would therefore kill good products quietly —
+// the same way a keyword of "paint" once excluded diamond painting kits.
+const categoryCases: [string, string][] = [
+  ["Home & Kitchen > Storage & Organisation", "home"],
+  ["Kitchen & Home Appliances", "home"],
+  ["Garden & Outdoors > Sprinklers", "garden"],
+  ["DIY & Tools > Power Tools", "diy"],
+  ["Toys & Games > Jigsaws & Puzzles", "toys"],
+  ["Arts & Crafts > Diamond Painting Kits", "toys"],
+  ["Sports & Outdoors > Fitness", "sports"],
+  ["Office Products > Stationery", "office"],
+  ["Pet Supplies > Dog Beds", "pet"],
+  ["Pet Supplies > Dog Food", "petFood"],
+  ["Beauty > Skin Care", "beauty"],
+  ["Health & Personal Care > First Aid", "health"],
+  ["Grocery > Coffee", "grocery"],
+  ["Clothing, Shoes & Accessories", "clothing"],
+  ["Electronics & Photo > Headphones", "electronics"],
+  ["PC & Video Games > Console Accessories", "videoGames"],
+  ["Jewellery > Necklaces", "jewellery"],
+];
+for (const [input, wanted] of categoryCases) {
+  const got = toFeeCategory(input);
+  claim(`"${input.slice(0, 38)}" → ${wanted}`, got === wanted, got === wanted ? "" : `got ${got}`);
+}
+
+// Nothing known should silently become the expensive default.
+claim("an empty category falls to other", toFeeCategory("") === "other");
+claim("a genuinely unknown category falls to other", toFeeCategory("Miscellaneous") === "other");
+
+console.log(
+  failed === 0
+    ? "\nAll checks passed."
+    : `\n${failed} check(s) failed.`,
+);
+process.exit(failed === 0 ? 0 : 1);

@@ -571,6 +571,14 @@ export function maxLandedCost(
     returnsPct?: number;
     adCostPerUnit?: number;
     targetNetMarginPct?: number;
+    /**
+     * Skips the 30% capital cap and returns the margin-derived ceiling alone.
+     *
+     * Only for callers that need to apply the cap themselves after adjusting
+     * the margin leg — the VAT-registered ceiling does exactly that, and
+     * subtracting output VAT from an already-capped number understates it.
+     */
+    ignoreLandedCostCap?: boolean;
   } = {},
 ): { landed: number; bindingConstraint: "margin" | "landed cost cap" } {
   const {
@@ -619,9 +627,102 @@ export function maxLandedCost(
   // on margin alone can still fail here. Report whichever bites first.
   const fromCap = sellPrice * 0.3;
 
+  if (opts.ignoreLandedCostCap) {
+    return { landed: round(Math.max(0, fromMargin)), bindingConstraint: "margin" };
+  }
+
   return fromMargin <= fromCap
     ? { landed: round(Math.max(0, fromMargin)), bindingConstraint: "margin" }
     : { landed: round(Math.max(0, fromCap)), bindingConstraint: "landed cost cap" };
+}
+
+/**
+ * The landed ceiling at both VAT states, on the basis a supplier quotes in.
+ *
+ * The plan calls the VAT cliff the most important number in it, and says
+ * plainly: model every product at both states, because one that only works
+ * below the threshold is a trap rather than an opportunity, and build that
+ * into the Judge as a hard rule. The arithmetic existed and nothing used it —
+ * the cliff was computed and then shown on one manual page.
+ *
+ * The two ceilings are not comparable as they come out of the engine. Below
+ * the threshold, import VAT is irrecoverable, so the ceiling includes it. Once
+ * registered you reclaim it, so the ceiling excludes it. Comparing them
+ * directly would overstate the cliff by the VAT rate.
+ *
+ * Both are therefore converted to what a supplier actually quotes: an ex-VAT
+ * price. Pay X ex-VAT below the threshold and it costs you X plus irrecoverable
+ * import VAT; pay X ex-VAT registered and it costs you X. That is the honest
+ * like-for-like, and it is the number to put in a supplier brief.
+ */
+export function maxLandedCostBothVatStates(
+  sellPrice: number,
+  opts: Parameters<typeof maxLandedCost>[1] & {
+    vatRatePct?: number;
+    importVatRatePct?: number;
+  } = {},
+): {
+  /**
+   * Ceilings from the margin floor only, with the capital cap excluded, so
+   * the two VAT states sit on one basis. **Not a supplier ceiling** — that is
+   * maxLandedCost, which applies the cap and is usually lower. These exist to
+   * measure exposure to the cliff, nothing else.
+   */
+  marginOnlyBelow: number;
+  marginOnlyRegistered: number;
+  dropPct: number;
+  onlyWorksBelowThreshold: boolean;
+  /** The real ceiling to quote, cap included, below the threshold. */
+  supplierCeiling: number;
+  why: string;
+} {
+  const vatRatePct = opts.vatRatePct ?? DEFAULT_INPUT.vatRatePct;
+  const importVatRatePct = opts.importVatRatePct ?? DEFAULT_INPUT.importVatRatePct;
+
+  const below = maxLandedCost(sellPrice, opts);
+
+  // Both ceilings come from the margin rule alone. The 30% capital cap is
+  // deliberately left out of this comparison: it is a rule about how much cash
+  // goes into one order, not about whether the product earns, and it does not
+  // convert between VAT states on the same basis. Applying it here produced a
+  // ceiling that rose on registering, which is impossible — being VAT
+  // registered cannot make a product cheaper to buy. The cap still applies to
+  // the real ceiling and to orderCostAtMoq; it just has no place in a
+  // question about the margin floor.
+  const fromMargin = maxLandedCost(sellPrice, {
+    ...opts,
+    ignoreLandedCostCap: true,
+  }).landed;
+
+  // Registered, the shelf price is VAT-inclusive, so output VAT comes out of
+  // revenue before anything else. Amazon's fees are charged on the gross price
+  // either way, so they do not move. Import VAT is reclaimed, so the ceiling
+  // this yields is already an ex-VAT supplier price.
+  const outputVat = sellPrice - sellPrice / (1 + vatRatePct / 100);
+  const registeredExVat = round(Math.max(0, fromMargin - outputVat));
+
+  // Below the threshold, a ceiling that includes irrecoverable import VAT
+  // corresponds to a smaller ex-VAT purchase price. Divide, do not subtract.
+  const belowExVat = round(fromMargin / (1 + importVatRatePct / 100));
+
+  const dropPct =
+    belowExVat > 0 ? round(((belowExVat - registeredExVat) / belowExVat) * 100) : 0;
+
+  // A ceiling at or near zero means no supplier price clears the margin floor
+  // once registered. That is the trap the plan describes: it works, you grow,
+  // you cross ninety thousand, and it stops working.
+  const onlyWorksBelowThreshold = registeredExVat <= 0.5;
+
+  return {
+    marginOnlyBelow: belowExVat,
+    marginOnlyRegistered: registeredExVat,
+    supplierCeiling: below.landed,
+    dropPct,
+    onlyWorksBelowThreshold,
+    why: onlyWorksBelowThreshold
+      ? `At £${sellPrice.toFixed(2)} this only works below the VAT threshold. Once registered there is no supplier price that clears the margin floor, so growing past £90,000 of turnover kills it.`
+      : `What you can pay a supplier falls by ${dropPct.toFixed(0)}% on crossing £90,000 of turnover, from about £${belowExVat.toFixed(2)} to £${registeredExVat.toFixed(2)} ex-VAT against the margin floor.`,
+  };
 }
 
 /**

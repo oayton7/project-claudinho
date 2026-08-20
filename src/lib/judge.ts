@@ -10,6 +10,8 @@
  * can fix. Demand is a floor. Improvability is the opportunity.
  */
 import { z } from "zod";
+import { toFeeCategory } from "./fees.ts";
+import { maxLandedCostBothVatStates } from "./margin.ts";
 
 export type ProductInput = {
   name: string;
@@ -180,6 +182,17 @@ If a product genuinely has no improvement available and the only play is nicer p
 
 **targetBuyer.nameable** — can you name the buyer in one specific sentence? "People who bake and are fed up with cracked cake tins" passes. "Anyone who wants to be organised" does not. If you cannot name them specifically, the seller cannot target ads, so this is a hard fail regardless of everything else. Set nameable to false and the verdict to KILL.
 
+## The VAT cliff
+
+The seller is below the £90,000 VAT registration threshold today. Cross it and output VAT comes out of the same shelf price, so the money available to pay a supplier falls sharply — hardest on cheap products, because the VAT taken out of a £12 price is a far larger share of the headroom than out of a £60 one.
+
+You will be told what happens to this product at both states. Apply it:
+
+- **Where the product is flagged, treat it as a serious risk that you must address explicitly in your reasoning and risks.** It works, he grows, he crosses £90,000, and it stops working. That is a trap rather than an opportunity, and growing into failure is worse than not starting.
+- **Kill it only if there is no realistic price at which it survives.** The flag is calculated before any supplier has quoted and, where the packaging dimensions are unknown, against the worst plausible FBA size tier. It is therefore pessimistic by construction. A flagged product that clearly works at a higher shelf price is a repricing decision, not a dead product — say what price it needs.
+- Where the fall is severe but survivable, say what he would have to do at the crossing: raise the price, renegotiate the supplier, or improve the margin. Decided in advance, not in a panic.
+- Do not treat voluntary early registration as an obvious answer. It lets him reclaim import VAT on stock, but whether it nets out depends on his margins and volume. That is an accountant question, not one to guess at.
+
 ## The question you must always ask
 
 **whyHasntSomeoneFixedIt** — if the gap is this obvious, why is it still there? Sometimes there is a real reason: a patent, a supplier who will not do the improved version at low volume, Amazon selling it themselves, or the "flaw" being a deliberate cost decision buyers actually accept. Give your honest best answer. If you think the gap really is just unexploited, say that plainly. Do not manufacture a concern to seem rigorous, and do not wave the question away.
@@ -207,6 +220,17 @@ export function buildJudgePrompt(p: ProductInput): string {
       "NOT CHECKED. The seller has not looked at US demand for this product yet. Treat this as missing information, not as a neutral or negative reading — do not infer anything about US demand either way. If a US signal would materially change your verdict, say so explicitly and tell him to check Google Trends (US vs UK, 5-year window) before committing money.",
   }[p.usSignal];
 
+  // The weight is passed so the FBA tier is guessed from something real. With
+  // nothing at all the engine assumes the worst plausible tier, which shrinks
+  // the ceiling and makes a survivable product look like a trap.
+  const vat = maxLandedCostBothVatStates(p.sellPrice, {
+    feeCategory: toFeeCategory(p.category),
+    packageWeightG: p.weightGrams || null,
+  });
+  const vatNote = vat.onlyWorksBelowThreshold
+    ? `\n\n**VAT cliff — FLAGGED:** ${vat.why} This is calculated before any supplier quote and against a conservative size tier, so treat it as a repricing question first and a kill only if no realistic price clears it.`
+    : `\n\n**VAT cliff:** ${vat.why}`;
+
   const weightNote =
     p.weightGrams > WEIGHT_LIMIT_GRAMS
       ? `\n\nNOTE: at ${p.weightGrams}g this is over the ${WEIGHT_LIMIT_GRAMS}g small-and-light guideline. Freight and FBA size tiers will bite. Factor that into your verdict.`
@@ -228,7 +252,7 @@ ${p.reviewComplaints || "(not provided)"}
 **Competition (raw paste — brand names, seller counts, review counts):**
 ${p.competitorNotes || "(not provided)"}
 
-**US signal:** ${usSignalText}${weightNote}`;
+**US signal:** ${usSignalText}${weightNote}${vatNote}`;
 }
 
 export const PREMORTEM_SYSTEM_PROMPT = `You are running a pre-mortem for a UK first-time Amazon FBA seller with roughly £3,000 of capital, stretchable to about £5,000 for a product that genuinely warrants it who is about to commit money to a product.

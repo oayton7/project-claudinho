@@ -68,6 +68,52 @@ export const FEE_CATEGORY_LABELS: Record<FeeCategory, string> = {
   other: "Unknown category",
 };
 
+/**
+ * Best guess at a fee category from Amazon's own category text.
+ *
+ * Deliberately cautious about what it claims to know. An unmatched category
+ * falls to "other", which carries the highest referral rate, so an unknown
+ * product is costed pessimistically rather than flatteringly.
+ *
+ * That pessimism cuts both ways, which is why the matching is worth doing
+ * properly rather than shrugging at everything: a too-high fee shrinks the
+ * landed ceiling, and a shrunken ceiling is what makes a product look like it
+ * cannot survive VAT registration. Guessing badly here would kill good
+ * products quietly, the way a keyword of "paint" once excluded diamond
+ * painting kits.
+ */
+export function toFeeCategory(name: string | null | undefined): FeeCategory {
+  const text = (name ?? "").toLowerCase();
+  if (!text.trim()) return "other";
+
+  // Order matters: the first match wins, so the more specific patterns of any
+  // overlapping pair come first. Pet food before pet, video games before
+  // electronics, jewellery before clothing.
+  const rules: [FeeCategory, RegExp][] = [
+    ["petFood", /pet\s*food|dog\s*food|cat\s*food|pet.*(clothing|apparel)/],
+    ["pet", /\bpet\b|pet supplies|dog|cat|aquarium|reptile/],
+    ["videoGames", /video\s*game|console|playstation|xbox|nintendo/],
+    ["deviceAccessories", /(kindle|echo|fire tv|alexa).*(accessor|case)/],
+    ["jewellery", /jewell?ery|necklace|bracelet|earring/],
+    ["clothing", /clothing|apparel|shoe|footwear|fashion|garment/],
+    ["electronics", /electronic|computer|camera|headphone|audio|hi-?fi|phone/],
+    ["beauty", /beauty|cosmetic|skin\s*care|makeup|fragrance|hair care/],
+    ["health", /health|personal care|medical|mobility|first aid/],
+    ["grocery", /grocer|food|drink|beverage|coffee|tea\b/],
+    ["office", /office|stationery|school supplies|printer/],
+    ["toys", /toys?|games?|puzzle|lego|craft|hobby/],
+    ["sports", /sport|fitness|exercise|cycling|camping|outdoor recreation/],
+    ["garden", /garden|outdoors|patio|lawn|plant|greenhouse/],
+    ["diy", /diy|tools|hardware|building|power tool|automotive/],
+    ["home", /home|kitchen|furniture|bedding|storage|appliance|lighting|d[eé]cor/],
+  ];
+
+  for (const [category, pattern] of rules) {
+    if (pattern.test(text)) return category;
+  }
+  return "other";
+}
+
 // ── Referral fees ──────────────────────────────────────────────────────────
 
 /** Ordered bands. The first whose ceiling covers the price wins. */
