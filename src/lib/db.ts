@@ -732,6 +732,128 @@ export async function updateRun(id: string, patch: Partial<RunRow>) {
   if (error) throw new Error(`Could not update the run: ${error.message}`);
 }
 
+/**
+ * Works out which stage a run should re-enter.
+ *
+ * A run's cursors are the truth about how far it got, not its status — the
+ * status is only what it was doing when it stopped. Picking the earliest
+ * unfinished stage means a resume never re-pays for work already committed.
+ */
+function stageToResume(run: RunRow): RunRow["status"] {
+  if (run.triage_queue?.length && run.triage_cursor < run.triage_queue.length) {
+    return "triaging";
+  }
+  if (run.categories?.length && run.category_cursor < run.categories.length) {
+    return "sweeping";
+  }
+  // Nothing part-finished. Either it died before finding anything, or it got
+  // to the end of both queues and never wrote itself off.
+  return run.categories?.length ? "triaging" : "queued";
+}
+
+/**
+ * Puts a stopped run back in the queue, by hand.
+ *
+ * The watchdog only rescues runs that stopped for a reason known to be
+ * temporary, which is right — retrying a broken schema forever would hide the
+ * fault rather than fix it. But that leaves the other failures needing a
+ * person to look, fix the cause, and say try again. This is that button.
+ *
+ * Deliberately refuses a run that is already moving: a second worker on the
+ * same run would pay twice for the same slice.
+ */
+export async function resumeRun(id: string): Promise<{ status: string; note: string }> {
+  const run = await getRun(id);
+  if (!run) throw new Error("That run no longer exists.");
+
+  if (["queued", "finding", "sweeping", "triaging"].includes(run.status)) {
+    return { status: run.status, note: "Already in the queue — nothing to resume." };
+  }
+  if (run.status === "done") {
+    return { status: "done", note: "This one finished. Start a new run instead." };
+  }
+
+  const status = stageToResume(run);
+  await updateRun(id, {
+    status,
+    error: null,
+    stage_detail: `resumed by hand from ${run.status}`,
+  });
+  return {
+    status,
+    note:
+      status === "triaging"
+        ? `Back in the queue at judging, ${run.triage_cursor} of ${run.triage_queue?.length ?? 0} already paid for and kept.`
+        : status === "sweeping"
+          ? `Back in the queue at sweeping, ${run.category_cursor} of ${run.categories?.length ?? 0} categories already done.`
+          : "Back in the queue from the start — it had not got far enough to keep anything.",
+  };
+}
+
+/**
+ * What the pipeline looks like right now, for /api/health.
+ *
+ * Answers the question you actually have at 8am: did anything run overnight,
+ * is anything wedged, and what has it cost. A run counts as stuck if it claims
+ * to be working but has not ticked in fifteen minutes — the watchdog fires
+ * every ten, so missing two in a row means nobody is driving it.
+ */
+export async function runHealth(): Promise<Record<string, unknown>> {
+  const db = getDb();
+  const { data, error } = await db
+    .from("runs")
+    .select("*")
+    .eq("user_id", currentUserId())
+    .order("updated_at", { ascending: false })
+    .limit(50);
+  if (error) return { error: error.message };
+
+  const runs = (data ?? []) as RunRow[];
+  const active = runs.filter((r) =>
+    ["queued", "finding", "sweeping", "triaging"].includes(r.status),
+  );
+  const STUCK_AFTER_MS = 15 * 60 * 1000;
+  const now = Date.now();
+  const stuck = active.filter((r) => {
+    const beat = r.last_tick_at ?? r.updated_at;
+    return beat ? now - new Date(beat).getTime() > STUCK_AFTER_MS : false;
+  });
+
+  const latest = runs[0];
+  const minutesSince = (iso?: string | null) =>
+    iso ? Math.round((now - new Date(iso).getTime()) / 60000) : null;
+
+  return {
+    lastRun: latest
+      ? {
+          id: latest.id,
+          status: latest.status,
+          detail: latest.stage_detail,
+          minutesAgo: minutesSince(latest.last_tick_at ?? latest.updated_at),
+          scanned: latest.scanned,
+          spentPence: Number(latest.spent_pence),
+        }
+      : null,
+    queued: active.length,
+    stuck: stuck.length,
+    stuckRuns: stuck.map((r) => ({
+      id: r.id,
+      status: r.status,
+      minutesQuiet: minutesSince(r.last_tick_at ?? r.updated_at),
+    })),
+    // Keepa's own count, from whichever run saw it last. Nothing here spends a
+    // token to ask.
+    keepaTokensLeft:
+      runs.find((r) => r.keepa_tokens_left !== null)?.keepa_tokens_left ?? null,
+    note:
+      stuck.length > 0
+        ? "A run has gone quiet for more than fifteen minutes. Check the GitHub Actions schedule is still enabled, then use Resume on /runs."
+        : active.length > 0
+          ? "Work outstanding, and something is driving it."
+          : "Nothing waiting.",
+  };
+}
+
 export async function listRuns(limit = 20): Promise<RunRow[]> {
   const db = getDb();
   const { data, error } = await db

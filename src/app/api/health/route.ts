@@ -46,13 +46,20 @@ export async function GET() {
 
   // What has actually been spent, rather than what the guards would allow.
   // Estimates on this project have been wrong by 5x before.
-  const { apiUsageSummary } = await import("@/lib/db");
+  const { apiUsageSummary, runHealth } = await import("@/lib/db");
   const usage = await apiUsageSummary().catch((e) => ({
+    error: e instanceof Error ? e.message : "unavailable",
+  }));
+
+  // Whether anything is actually running, and whether anything is wedged.
+  // Counts and timings only — no ASINs, no candidate data.
+  const pipeline = await runHealth().catch((e) => ({
     error: e instanceof Error ? e.message : "unavailable",
   }));
 
   return Response.json({
     usage,
+    pipeline,
     watchdog: {
       configured: Boolean(watchdog),
       note: watchdog

@@ -7,7 +7,6 @@
  * stop you doing that, so the discipline is yours.
  */
 import Anthropic from "@anthropic-ai/sdk";
-import { describeError } from "./errors";
 
 export const MODEL = "claude-opus-5";
 
@@ -21,8 +20,22 @@ const PRICE_PER_MTOK = { input: 5, output: 25 } as const;
 const CALL_LIMIT_PER_HOUR = 40;
 const calls: number[] = [];
 
-export class RateLimited extends Error {}
-export class MissingApiKey extends Error {}
+export class RateLimited extends Error {
+  constructor(
+    message = "The hourly spend guard stopped this before it cost anything. It resets on the hour; nothing is lost and a queued run resumes on its own.",
+  ) {
+    super(message);
+    this.name = "RateLimited";
+  }
+}
+export class MissingApiKey extends Error {
+  constructor(
+    message = "ANTHROPIC_API_KEY is not set. Locally that means .env.local; in production it means the Vercel project's environment variables.",
+  ) {
+    super(message);
+    this.name = "MissingApiKey";
+  }
+}
 
 function checkRate() {
   const hourAgo = Date.now() - 60 * 60 * 1000;
@@ -176,4 +189,4 @@ export async function guardedTriage<T>(
   return fn(client);
 }
 
-export { describeError } from "./errors";
+export { describeError } from "./errors.ts";

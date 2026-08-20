@@ -107,7 +107,7 @@ async function doOneSlice(request: Request, runId?: string) {
       // stop early when the ceiling is tokens rather than time.
       const wanted = num("categoryLimit", 5);
       const found = new Map<number, { id: number; name: string; risers: number }>();
-      let page = num("page", 0);
+      const page = num("page", 0);
       const maxPages = num("maxPages", 8);
       let tokensLeft: number | null = null;
 

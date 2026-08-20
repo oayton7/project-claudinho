@@ -103,6 +103,80 @@ check(
 );
 process.env.KEEPA_API_KEY = savedKey;
 
+console.log("\nAnthropic\n");
+
+// The Judge is the only part of this that spends real money, so a failure
+// there has to be unmistakable — a silent one costs both the run and the fee.
+const { MissingApiKey, RateLimited, getClient } = await import("../src/lib/claude.ts");
+
+// Asking the client without a key configured.
+const savedAnthropicKey = process.env.ANTHROPIC_API_KEY;
+delete process.env.ANTHROPIC_API_KEY;
+message = await messageFrom(async () => getClient());
+check(
+  "a missing Anthropic key says where to put one",
+  isUseful(message, ["anthropic_api_key", ".env.local"]),
+  message.slice(0, 90),
+);
+process.env.ANTHROPIC_API_KEY = savedAnthropicKey ?? "test-key-not-real";
+
+// A rejected key. Routed through the real SDK so this tests the error type the
+// SDK actually throws, not one invented here. maxRetries 0 because a retry
+// loop against a stub proves nothing and takes seconds.
+const { default: Anthropic } = await import("@anthropic-ai/sdk");
+async function askAnthropic(status: number, body: unknown) {
+  const client = new Anthropic({
+    apiKey: "test-key-not-real",
+    maxRetries: 0,
+    fetch: async () =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      }),
+  });
+  return client.messages.create({
+    model: "claude-sonnet-5",
+    max_tokens: 16,
+    messages: [{ role: "user", content: "ping" }],
+  });
+}
+
+message = await messageFrom(() =>
+  askAnthropic(401, { error: { type: "authentication_error", message: "invalid x-api-key" } }),
+);
+check(
+  "a rejected Anthropic key names Anthropic and the status",
+  isUseful(message, ["anthropic", "401"]),
+  message.slice(0, 90),
+);
+
+message = await messageFrom(() =>
+  askAnthropic(429, { error: { type: "rate_limit_error", message: "rate limited" } }),
+);
+check(
+  "an Anthropic rate limit names the status",
+  isUseful(message, ["anthropic", "429"]),
+  message.slice(0, 90),
+);
+
+message = await messageFrom(() => askAnthropic(529, { error: { message: "overloaded" } }));
+check(
+  "an overloaded API is distinguishable from a bad request",
+  isUseful(message, ["anthropic", "529"]),
+  message.slice(0, 90),
+);
+
+check(
+  "the guard's own error explains itself",
+  isUseful(new RateLimited().message, ["resets"]),
+  new RateLimited().message.slice(0, 70),
+);
+check(
+  "the missing-key error explains itself",
+  isUseful(new MissingApiKey().message, ["anthropic_api_key"]),
+  new MissingApiKey().message.slice(0, 70),
+);
+
 console.log("\nThe rule these enforce\n");
 
 // The generic message this project actually shipped once, and the hour it cost

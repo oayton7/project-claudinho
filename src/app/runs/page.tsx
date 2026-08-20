@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
 type Run = {
@@ -32,11 +32,33 @@ const STATUS_STYLE: Record<string, string> = {
   failed: "bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-200",
 };
 
+/**
+ * Fetches the run list.
+ *
+ * Deliberately outside the component. Inside, it was either wrapped in a
+ * useCallback that stopped React Compiler optimising the whole component, or
+ * left bare and re-created every render — which reset the polling interval on
+ * every render, so a page that re-renders often would never finish a ten
+ * second wait. Out here it has one stable identity and neither problem.
+ */
+async function fetchRuns(): Promise<{ runs: Run[]; error?: string }> {
+  try {
+    const response = await fetch("/api/pipeline/start");
+    const data = await response.json();
+    if (!response.ok)
+      return { runs: [], error: data.error ?? "Could not load runs" };
+    return { runs: data.runs as Run[] };
+  } catch {
+    return { runs: [], error: "Could not reach the server." };
+  }
+}
+
 export default function RunsPage() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [error, setError] = useState("");
   const [starting, setStarting] = useState(false);
   const [working, setWorking] = useState(false);
+  const [resuming, setResuming] = useState("");
 
   /**
    * Work whatever is queued.
@@ -65,27 +87,55 @@ export default function RunsPage() {
     }
   }
 
-  const load = useCallback(async () => {
-    try {
-      const response = await fetch("/api/pipeline/start");
-      const data = await response.json();
-      if (!response.ok) {
-        setError(data.error ?? "Could not load runs");
-        return;
-      }
-      setRuns(data.runs);
-    } catch {
-      setError("Could not reach the server.");
-    }
-  }, []);
+  const load = async () => {
+    const result = await fetchRuns();
+    if (result.error) setError(result.error);
+    else setRuns(result.runs);
+  };
 
   // A live view of something that advances on its own, so it polls. Ten
   // seconds is slow enough to be free and fast enough to feel alive.
   useEffect(() => {
-    void load();
-    const timer = setInterval(() => void load(), 10000);
-    return () => clearInterval(timer);
-  }, [load]);
+    let live = true;
+    const poll = async () => {
+      const result = await fetchRuns();
+      if (!live) return;
+      if (result.error) setError(result.error);
+      else setRuns(result.runs);
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), 10000);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, []);
+
+  /**
+   * Puts one stopped run back in the queue.
+   *
+   * Separate from "Work the queue" on purpose: that button only drives runs
+   * the system already considers live, and a failed run is deliberately not
+   * one of them until a person has looked at why.
+   */
+  const resume = async (id: string) => {
+    setResuming(id);
+    setError("");
+    try {
+      const response = await fetch("/api/pipeline/resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId: id }),
+      });
+      const data = await response.json();
+      if (data.error) setError(data.error);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not resume that run.");
+    } finally {
+      setResuming("");
+    }
+  };
 
   async function start() {
     setStarting(true);
@@ -153,7 +203,9 @@ export default function RunsPage() {
             disabled={working || active.length === 0}
             className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-200"
           >
-            {working ? "Working…" : `Work the queue${active.length ? ` (${active.length})` : ""}`}
+            {working
+              ? "Working…"
+              : `Work the queue${active.length ? ` (${active.length})` : ""}`}
           </button>
           {active.length > 0 && !working && (
             <span className="text-xs text-zinc-500">
@@ -189,7 +241,8 @@ export default function RunsPage() {
                     {r.status}
                   </span>
                   <span className="font-mono text-[11px] text-zinc-500">
-                    {new Date(r.created_at).toLocaleString("en-GB")} · {r.ticks} ticks
+                    {new Date(r.created_at).toLocaleString("en-GB")} · {r.ticks}{" "}
+                    ticks
                   </span>
                 </div>
 
@@ -208,8 +261,14 @@ export default function RunsPage() {
                   {[
                     ["scanned", r.scanned],
                     ["killed free", r.killed],
-                    ["judged", `${r.triage_cursor}/${r.triage_queue.length || 0}`],
-                    ["spent", `${Number(r.spent_pence).toFixed(2)}p of ${r.cap_pence}p`],
+                    [
+                      "judged",
+                      `${r.triage_cursor}/${r.triage_queue.length || 0}`,
+                    ],
+                    [
+                      "spent",
+                      `${Number(r.spent_pence).toFixed(2)}p of ${r.cap_pence}p`,
+                    ],
                     ["keepa", r.keepa_tokens_left ?? "—"],
                   ].map(([k, v]) => (
                     <div key={String(k)}>
@@ -225,6 +284,18 @@ export default function RunsPage() {
                   <p className="mt-2 rounded bg-amber-50 p-2 text-xs leading-5 text-amber-900 dark:bg-amber-950 dark:text-amber-200">
                     {r.error}
                   </p>
+                )}
+
+                {(r.status === "failed" || r.status === "halted") && (
+                  <button
+                    onClick={() => void resume(r.id)}
+                    disabled={resuming === r.id}
+                    className="mt-2 rounded border border-zinc-400 px-3 py-1.5 text-xs font-medium text-zinc-800 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-200"
+                  >
+                    {resuming === r.id
+                      ? "Resuming…"
+                      : "Resume — keeps what it already paid for"}
+                  </button>
                 )}
               </li>
             );
