@@ -59,6 +59,7 @@ export default function RunsPage() {
   const [starting, setStarting] = useState(false);
   const [working, setWorking] = useState(false);
   const [resuming, setResuming] = useState("");
+  const [judging, setJudging] = useState(false);
 
   /**
    * Work whatever is queued.
@@ -137,6 +138,35 @@ export default function RunsPage() {
     }
   };
 
+  /**
+   * Queues a run that only judges.
+   *
+   * Skips finding and sweeping, so it costs no Keepa tokens — which matters
+   * when the bucket is empty and there is already a backlog that passed
+   * triage. A pound is about ten deep judgements; press it again for more,
+   * rather than committing four pounds to one click.
+   */
+  async function judgeBacklog() {
+    setJudging(true);
+    setError("");
+    try {
+      const response = await fetch("/api/pipeline/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stage: "judging", capPence: 100 }),
+      });
+      const data = await response.json();
+      if (data.error) setError(data.error);
+      await load();
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Could not queue the judging run.",
+      );
+    } finally {
+      setJudging(false);
+    }
+  }
+
   async function start() {
     setStarting(true);
     setError("");
@@ -213,6 +243,13 @@ export default function RunsPage() {
               hands back.
             </span>
           )}
+          <button
+            onClick={() => void judgeBacklog()}
+            disabled={judging}
+            className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-200"
+          >
+            {judging ? "Queueing…" : "Judge what passed triage (£1, about 10)"}
+          </button>
           <Link href="/shortlist" className="ml-auto text-sm underline">
             The shortlist →
           </Link>
