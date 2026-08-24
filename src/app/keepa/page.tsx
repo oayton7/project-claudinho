@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 
 type Series = {
@@ -32,13 +33,15 @@ type Probe = {
   shape: {
     namedStats?: NamedStats;
     indexedStats?: { current?: number[] | null };
-    salesRanksByCategory?: {
-      categoryId: string;
-      points: number;
-      latestRank: number | null;
-      firstDate: string | null;
-      lastDate: string | null;
-    }[] | null;
+    salesRanksByCategory?:
+      | {
+          categoryId: string;
+          points: number;
+          latestRank: number | null;
+          firstDate: string | null;
+          lastDate: string | null;
+        }[]
+      | null;
     topLevelKeys?: string[];
     tokensConsumed?: number;
     products?: number;
@@ -94,14 +97,17 @@ function plausibility(index: number, value: number | null): string {
   return "";
 }
 
-export default function KeepaPage() {
-  const [asin, setAsin] = useState("");
-
+function KeepaPageInner() {
   // Linked to from the products list as /keepa?asin=...
-  useEffect(() => {
-    const fromUrl = new URLSearchParams(window.location.search).get("asin");
-    if (fromUrl) setAsin(fromUrl.toUpperCase());
-  }, []);
+  //
+  // Read straight into the initial state rather than set from an effect. The
+  // effect version wrote state on the first render for every visitor, whether
+  // or not there was an ASIN in the URL, which is a render the page never
+  // needed and which stopped the component being optimised at all.
+  const searchParams = useSearchParams();
+  const [asin, setAsin] = useState(() =>
+    (searchParams.get("asin") ?? "").toUpperCase(),
+  );
   const [domain, setDomain] = useState<"uk" | "us">("uk");
   const [probe, setProbe] = useState<Probe | null>(null);
   const [error, setError] = useState("");
@@ -129,7 +135,9 @@ export default function KeepaPage() {
     }
   }
 
-  const series = (probe?.shape.product?.csvSeries ?? []).filter((s) => s.present);
+  const series = (probe?.shape.product?.csvSeries ?? []).filter(
+    (s) => s.present,
+  );
 
   return (
     <div className="flex flex-1 flex-col items-center bg-zinc-50 font-sans dark:bg-black">
@@ -218,45 +226,79 @@ export default function KeepaPage() {
                 </p>
                 <dl className="mt-3 grid gap-x-8 gap-y-3 sm:grid-cols-2">
                   {[
-                    ["Rank drops, 30 days", probe.shape.namedStats.salesRankDrops30, "Roughly one drop per sale. The closest free proxy for units sold"],
-                    ["Rank drops, 90 days", probe.shape.namedStats.salesRankDrops90, "The one to judge velocity on. Divide by 3 for a monthly figure"],
-                    ["Rank drops, 365 days", probe.shape.namedStats.salesRankDrops365, "Compare against 90 to see whether demand is growing or decaying"],
-                    ["Sellers, total", probe.shape.namedStats.totalOfferCount, "Enough to prove a market, few enough to enter"],
-                    ["Sellers on FBA", probe.shape.namedStats.offerCountFBA, "Your real competition"],
-                    ["Out of stock, 90 days", probe.shape.namedStats.outOfStockPercentage90, "How often competitors run dry. A high number is an opening"],
+                    [
+                      "Rank drops, 30 days",
+                      probe.shape.namedStats.salesRankDrops30,
+                      "Roughly one drop per sale. The closest free proxy for units sold",
+                    ],
+                    [
+                      "Rank drops, 90 days",
+                      probe.shape.namedStats.salesRankDrops90,
+                      "The one to judge velocity on. Divide by 3 for a monthly figure",
+                    ],
+                    [
+                      "Rank drops, 365 days",
+                      probe.shape.namedStats.salesRankDrops365,
+                      "Compare against 90 to see whether demand is growing or decaying",
+                    ],
+                    [
+                      "Sellers, total",
+                      probe.shape.namedStats.totalOfferCount,
+                      "Enough to prove a market, few enough to enter",
+                    ],
+                    [
+                      "Sellers on FBA",
+                      probe.shape.namedStats.offerCountFBA,
+                      "Your real competition",
+                    ],
+                    [
+                      "Out of stock, 90 days",
+                      probe.shape.namedStats.outOfStockPercentage90,
+                      "How often competitors run dry. A high number is an opening",
+                    ],
                   ].map(([label, value, note]) => (
                     <div key={String(label)}>
                       <dt className="flex items-baseline justify-between gap-3">
-                        <span className="text-sm text-zinc-700 dark:text-zinc-300">{label}</span>
+                        <span className="text-sm text-zinc-700 dark:text-zinc-300">
+                          {label}
+                        </span>
                         <span className="font-mono text-sm font-semibold tabular-nums text-black dark:text-zinc-100">
-                          {value === null || value === undefined ? "—" : String(value)}
+                          {value === null || value === undefined
+                            ? "—"
+                            : String(value)}
                         </span>
                       </dt>
-                      <dd className="mt-0.5 text-xs leading-4 text-zinc-500">{note}</dd>
+                      <dd className="mt-0.5 text-xs leading-4 text-zinc-500">
+                        {note}
+                      </dd>
                     </div>
                   ))}
                 </dl>
               </div>
             )}
 
-            {probe.shape.salesRanksByCategory && probe.shape.salesRanksByCategory.length > 0 && (
-              <div>
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
-                  Sales rank history
-                </h2>
-                <ul className="mt-2 space-y-1 text-xs">
-                  {probe.shape.salesRanksByCategory.map((c) => (
-                    <li key={c.categoryId} className="text-zinc-600 dark:text-zinc-400">
-                      Category {c.categoryId}: latest rank{" "}
-                      <strong className="font-mono text-black dark:text-zinc-100">
-                        {c.latestRank ?? "—"}
-                      </strong>
-                      , {c.points} data points, {c.firstDate} → {c.lastDate}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            {probe.shape.salesRanksByCategory &&
+              probe.shape.salesRanksByCategory.length > 0 && (
+                <div>
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
+                    Sales rank history
+                  </h2>
+                  <ul className="mt-2 space-y-1 text-xs">
+                    {probe.shape.salesRanksByCategory.map((c) => (
+                      <li
+                        key={c.categoryId}
+                        className="text-zinc-600 dark:text-zinc-400"
+                      >
+                        Category {c.categoryId}: latest rank{" "}
+                        <strong className="font-mono text-black dark:text-zinc-100">
+                          {c.latestRank ?? "—"}
+                        </strong>
+                        , {c.points} data points, {c.firstDate} → {c.lastDate}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
             {series.length === 0 ? (
               <p className="rounded border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
@@ -281,19 +323,30 @@ export default function KeepaPage() {
                       const check = plausibility(s.index, s.lastValue);
                       const bad = check.startsWith("✗");
                       return (
-                        <tr key={s.index} className={bad ? "bg-red-50 dark:bg-red-950/40" : ""}>
-                          <td className="py-2 pr-3 font-mono text-xs">{s.index}</td>
-                          <td className="py-2 pr-3 text-xs">
-                            {EXPECTED[s.index] ?? <span className="text-zinc-400">unknown</span>}
+                        <tr
+                          key={s.index}
+                          className={bad ? "bg-red-50 dark:bg-red-950/40" : ""}
+                        >
+                          <td className="py-2 pr-3 font-mono text-xs">
+                            {s.index}
                           </td>
-                          <td className="py-2 pr-3 text-right tabular-nums text-xs">{s.pairs}</td>
+                          <td className="py-2 pr-3 text-xs">
+                            {EXPECTED[s.index] ?? (
+                              <span className="text-zinc-400">unknown</span>
+                            )}
+                          </td>
+                          <td className="py-2 pr-3 text-right tabular-nums text-xs">
+                            {s.pairs}
+                          </td>
                           <td className="py-2 pr-3 text-right tabular-nums text-xs">
                             {s.lastValue ?? "—"}
                           </td>
                           <td className="py-2 pr-3 text-xs text-zinc-500">
                             {s.firstDate} → {s.lastDate}
                           </td>
-                          <td className={`py-2 text-xs ${bad ? "font-medium text-red-800 dark:text-red-300" : "text-zinc-600 dark:text-zinc-400"}`}>
+                          <td
+                            className={`py-2 text-xs ${bad ? "font-medium text-red-800 dark:text-red-300" : "text-zinc-600 dark:text-zinc-400"}`}
+                          >
                             {check}
                           </td>
                         </tr>
@@ -305,7 +358,9 @@ export default function KeepaPage() {
             )}
 
             <div className="rounded border border-zinc-300 bg-white p-4 text-xs leading-5 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
-              <p className="font-medium text-black dark:text-zinc-100">What to look for</p>
+              <p className="font-medium text-black dark:text-zinc-100">
+                What to look for
+              </p>
               <p className="mt-1">
                 Index 3 should read as a sales rank and index 11 as a seller
                 count. If either says ✗, the assumed positions are wrong and
@@ -318,5 +373,17 @@ export default function KeepaPage() {
         )}
       </main>
     </div>
+  );
+}
+
+/**
+ * useSearchParams needs a Suspense boundary, because it forces the subtree to
+ * render on the client and Next wants somewhere to put the gap.
+ */
+export default function KeepaPage() {
+  return (
+    <Suspense fallback={null}>
+      <KeepaPageInner />
+    </Suspense>
   );
 }

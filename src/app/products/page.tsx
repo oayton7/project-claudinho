@@ -1,8 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { STAGES, STAGE_LABELS, type ProductRow, type Stage } from "@/lib/stages";
+import {
+  STAGES,
+  STAGE_LABELS,
+  type ProductRow,
+  type Stage,
+} from "@/lib/stages";
 
 const VERDICT_COLOUR: Record<string, string> = {
   TEST: "text-emerald-700 dark:text-emerald-400",
@@ -10,34 +15,62 @@ const VERDICT_COLOUR: Record<string, string> = {
   KILL: "text-red-700 dark:text-red-400",
 };
 
+/**
+ * Fetches the product list for a stage filter.
+ *
+ * Outside the component deliberately, the same reasoning as /runs: wrapped in
+ * a useCallback it stopped React Compiler optimising the component, and left
+ * bare it was re-created every render. Out here it has one stable identity.
+ */
+async function fetchProducts(
+  filter: Stage | "all",
+): Promise<{ products: ProductRow[]; error?: string }> {
+  try {
+    const url =
+      filter === "all" ? "/api/products" : `/api/products?stage=${filter}`;
+    const response = await fetch(url);
+    const data = await response.json();
+    if (!response.ok) {
+      return { products: [], error: data.error ?? "Could not load products" };
+    }
+    return { products: data.products as ProductRow[] };
+  } catch {
+    return { products: [], error: "Could not reach the server" };
+  }
+}
+
 export default function ProductsPage() {
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [filter, setFilter] = useState<Stage | "all">("all");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
+  const load = async () => {
     setLoading(true);
     setError("");
-    try {
-      const url = filter === "all" ? "/api/products" : `/api/products?stage=${filter}`;
-      const response = await fetch(url);
-      const data = await response.json();
-      if (!response.ok) {
-        setError(data.error ?? "Could not load products");
-        return;
-      }
-      setProducts(data.products);
-    } catch {
-      setError("Could not reach the server");
-    } finally {
-      setLoading(false);
-    }
-  }, [filter]);
+    const result = await fetchProducts(filter);
+    setError(result.error ?? "");
+    setProducts(result.products);
+    setLoading(false);
+  };
 
+  // Reloads when the filter changes, and owns its own fetch so nothing in the
+  // dependency list is re-created on every render.
   useEffect(() => {
-    void load();
-  }, [load]);
+    let live = true;
+    void (async () => {
+      setLoading(true);
+      setError("");
+      const result = await fetchProducts(filter);
+      if (!live) return;
+      setError(result.error ?? "");
+      setProducts(result.products);
+      setLoading(false);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [filter]);
 
   async function patch(id: string, body: Record<string, unknown>) {
     const response = await fetch(`/api/products/${id}`, {
@@ -54,7 +87,8 @@ export default function ProductsPage() {
   }
 
   async function remove(id: string, name: string) {
-    if (!confirm(`Delete "${name}"? Its judgements and pre-mortems go too.`)) return;
+    if (!confirm(`Delete "${name}"? Its judgements and pre-mortems go too.`))
+      return;
     const response = await fetch(`/api/products/${id}`, { method: "DELETE" });
     if (!response.ok) {
       setError("Could not delete");
@@ -115,7 +149,9 @@ export default function ProductsPage() {
               }`}
             >
               {STAGE_LABELS[stage]}
-              {filter === "all" && counts[stage] > 0 ? ` (${counts[stage]})` : ""}
+              {filter === "all" && counts[stage] > 0
+                ? ` (${counts[stage]})`
+                : ""}
             </button>
           ))}
         </div>
@@ -136,14 +172,16 @@ export default function ProductsPage() {
           <ul className="mt-6 divide-y divide-zinc-200 border-y border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
             {products.map((p) => {
               const latest = p.judgements?.[0];
-              const disagreed = p.my_verdict && latest && p.my_verdict !== latest.verdict;
+              const disagreed =
+                p.my_verdict && latest && p.my_verdict !== latest.verdict;
               return (
                 <li key={p.id} className="py-4">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <h2 className="font-medium text-black dark:text-zinc-100">
                       {p.name}
                       <span className="ml-2 text-xs font-normal text-zinc-500">
-                        {p.category} · £{Number(p.sell_price).toFixed(2)} · {p.weight_grams}g
+                        {p.category} · £{Number(p.sell_price).toFixed(2)} ·{" "}
+                        {p.weight_grams}g
                         {p.asin && (
                           <>
                             {" · "}
@@ -156,7 +194,10 @@ export default function ProductsPage() {
                               {p.asin}
                             </a>
                             {" · "}
-                            <Link href={`/keepa?asin=${p.asin}`} className="underline">
+                            <Link
+                              href={`/keepa?asin=${p.asin}`}
+                              className="underline"
+                            >
                               Keepa
                             </Link>
                           </>
@@ -165,7 +206,9 @@ export default function ProductsPage() {
                     </h2>
                     <div className="flex items-center gap-3 text-xs">
                       {latest && (
-                        <span className={`font-medium ${VERDICT_COLOUR[latest.verdict] ?? ""}`}>
+                        <span
+                          className={`font-medium ${VERDICT_COLOUR[latest.verdict] ?? ""}`}
+                        >
                           Judge: {latest.verdict}
                         </span>
                       )}
@@ -192,19 +235,23 @@ export default function ProductsPage() {
                   )}
                   {p.killed_reason && (
                     <p className="mt-1 text-xs leading-5 text-red-800 dark:text-red-400">
-                      <strong className="font-medium">Killed:</strong> {p.killed_reason}
+                      <strong className="font-medium">Killed:</strong>{" "}
+                      {p.killed_reason}
                     </p>
                   )}
                   {p.my_notes && (
                     <p className="mt-1 text-xs leading-5 text-zinc-700 dark:text-zinc-300">
-                      <strong className="font-medium">Your note:</strong> {p.my_notes}
+                      <strong className="font-medium">Your note:</strong>{" "}
+                      {p.my_notes}
                     </p>
                   )}
 
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <select
                       value={p.stage}
-                      onChange={(e) => void patch(p.id, { stage: e.target.value })}
+                      onChange={(e) =>
+                        void patch(p.id, { stage: e.target.value })
+                      }
                       className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-black dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                     >
                       {STAGES.map((stage) => (
