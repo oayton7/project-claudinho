@@ -506,7 +506,7 @@ export async function listShortlist(
   // used to think, and the point of accumulating hundreds is being able to ask
   // that later.
   rows = rows.filter(
-    (r) => !isMedia({ categoryTree: [{ name: r.category }] }),
+    (r) => !isMedia({ categoryTree: [{ name: r.category }], title: r.title }),
   );
 
   // Collapse siblings on the way out, not just on the way in.

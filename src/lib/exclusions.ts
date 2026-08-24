@@ -204,6 +204,58 @@ const NEVER_ANYWHERE = [
   "lighter",
   "fuel",
   "pool chemical",
+
+  // Pest control, which is where the chemicals actually live.
+  //
+  // A wasp nest killer aerosol reached the shortlist as a TEST. Every word
+  // that should have caught it — pesticide, insecticide, aerosol — was already
+  // on this list, and none of them appear in its category, "Bees, Wasps &
+  // Hornets". The category names the pest, not the chemistry.
+  "pest control",
+  "rodent control",
+  "weed control",
+  "bees, wasps",
+  "wasps & hornets",
+  "insect & pest",
+];
+
+/**
+ * Hazard words matched against the product's own title.
+ *
+ * The category tree is not enough on its own. A chemical filed under the pest
+ * it kills, or under a benign-sounding department, is invisible to a check
+ * that only reads category names.
+ *
+ * Deliberately a short list of unambiguous phrases rather than the full
+ * NEVER_ANYWHERE list. Running that against titles would be a disaster: "usb"
+ * and "cable" appear in the titles of things that are neither, and an
+ * over-block is worse than a leak because a leak is visible while this just
+ * looks like a quiet market.
+ *
+ * Note "rat poison" rather than bare "poison", which would match the
+ * "non-poisonous" on a children's craft set.
+ */
+const HAZARDOUS_TITLE_PHRASES = [
+  "nest killer",
+  "wasp killer",
+  "hornet killer",
+  "ant killer",
+  "insect killer",
+  "bug killer",
+  "weed killer",
+  "moss killer",
+  "fly spray",
+  "insect spray",
+  "bug spray",
+  "wasp spray",
+  "rat poison",
+  "poison bait",
+  "slug pellet",
+  "pesticide",
+  "insecticide",
+  "herbicide",
+  "rodenticide",
+  "fungicide",
 ];
 
 /**
@@ -261,6 +313,17 @@ export function isMedia(product: Record<string, unknown>): boolean {
   if (NEVER_CANDIDATES.some((bad) => group.includes(bad) || binding.includes(bad))) {
     return true;
   }
+
+  // The product's own title, for hazardous goods filed under the pest they
+  // kill rather than under anything chemical-sounding.
+  //
+  // Deliberately before the category-tree checks, because those bail out when
+  // there is no tree — and a row read back from the database has one category
+  // name rather than a tree. Putting this after that early return meant it
+  // never ran on anything already stored, which is precisely the set that
+  // needed it.
+  const title = String(product.title ?? "").toLowerCase();
+  if (title && HAZARDOUS_TITLE_PHRASES.some((bad) => title.includes(bad))) return true;
 
   // Second pass on the root of the category tree, which is Amazon's
   // department. A vinyl LP passed the field check while sitting in

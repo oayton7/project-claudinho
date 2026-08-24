@@ -195,6 +195,47 @@ assert("belts have a size", isMedia(tree("Accessories", "Belts")));
 // These do not, so they stay in: one-size, and capable of going viral in a way
 // a jumper is not.
 assert("sunglasses stay in", !isMedia(tree("Accessories", "Sunglasses")));
+
+// Hazardous goods, which reach the shortlist filed under the pest they kill
+// rather than under anything that sounds chemical. Every word that should have
+// caught the wasp killer was already on the list; none of them was in its
+// category.
+assert(
+  "a wasp killer by category",
+  isMedia(tree("Garden & Outdoors", "Bees, Wasps & Hornets")),
+);
+assert(
+  "a wasp killer by title, in a clean category",
+  isMedia({
+    ...tree("Garden & Outdoors", "Garden Sprayers"),
+    title: "Karlsten Hyper Power Wasp Nest Killer & Hornet Killer 600ml",
+  }),
+);
+assert(
+  "a hazard in the title is caught with no category tree at all",
+  isMedia({ title: "Karlsten Hyper Power Wasp Nest Killer & Hornet Killer 600ml" }),
+);
+assert(
+  "and a stored row shape, one category and a title",
+  isMedia({ categoryTree: [{ name: "Garden Sprayers" }], title: "Doff Ant Killer Powder 300g" }),
+);
+assert("weed killer by title", isMedia({ ...tree("Garden & Outdoors", "Lawn Care"), title: "Resolva Weed Killer Concentrate 1L" }));
+assert("slug pellets by title", isMedia({ ...tree("Garden & Outdoors", "Plant Care"), title: "Growing Success Slug Pellets 575g" }));
+
+// And the things near them that must survive. A physical trap is not a
+// chemical, and an over-block here is invisible.
+assert("a non-chemical wasp trap survives", !isMedia({ ...tree("Garden & Outdoors", "Traps"), title: "Reusable Outdoor Wasp Trap, Chemical Free" }));
+assert("bird baths survive", !isMedia({ ...tree("Garden & Outdoors", "Bird Baths"), title: "35In Metal Bird Bath for Garden, Vintage Freestanding" }));
+assert("sprinklers survive", !isMedia({ ...tree("Garden & Outdoors", "Sprinklers"), title: "Garden Sprinkler Watering System" }));
+assert("dog toys survive", !isMedia({ ...tree("Pet Supplies", "Interactive Toys"), title: "Dog Football with Grab Tabs, Floating Toy" }));
+assert(
+  "diamond painting survives, still",
+  !isMedia({ ...tree("Toys & Games", "Diamond Painting Kits"), title: "Personalised Diamond Painting Kits for Adults" }),
+);
+assert(
+  "a craft set calling itself non-poisonous survives",
+  !isMedia({ ...tree("Toys & Games", "Art Sets"), title: "Kids Paint Set, Washable and Non-Poisonous" }),
+);
 assert("bags stay in", !isMedia(tree("Luggage", "Backpacks")));
 assert("wallets stay in", !isMedia(tree("Accessories", "Wallets & Card Cases")));
 
