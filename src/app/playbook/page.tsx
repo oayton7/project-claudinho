@@ -221,37 +221,101 @@ export default function PlaybookPage() {
             no VAT. But a company is not free to keep alive, and the obligations
             do not pause because you have not started.
           </p>
-          <ul className="list-disc space-y-1 pl-5">
-            <li>
-              <strong>Confirmation statement, £50 a year.</strong> Due
-              annually whether or not you have traded. It rose from £34 on 1
-              February 2026.
-            </li>
-            <li>
-              <strong>Annual accounts, free to file, compulsory to file.</strong>{" "}
-              A company that has never traded files dormant accounts, which are
-              short, but they still have to arrive.
-            </li>
-            <li>
-              <strong>A Corporation Tax return, if HMRC asks for one.</strong>{" "}
-              Once they issue a notice to deliver, you file it or you tell them
-              the company is dormant. Ignoring it is not an option.
-            </li>
-          </ul>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="text-zinc-500">
+                <tr>
+                  <th className="py-1 pr-4 font-medium">Setting up</th>
+                  <th className="py-1 pr-4 font-medium">Cost</th>
+                  <th className="py-1 font-medium">Notes</th>
+                </tr>
+              </thead>
+              <tbody className="align-top">
+                {[
+                  ["Identity verification", "Free", "GOV.UK One Login. Required before registering"],
+                  ["Register the company", "£100", "Digital filing. £50 is out of date"],
+                  ["Corporation Tax registration", "Free", "Tick the box during registration"],
+                  ["GB EORI number", "Free", "Needs the UTR first. Usually immediate"],
+                  ["VAT registration", "Free", "Optional below £90,000 turnover"],
+                ].map(([a, b, c]) => (
+                  <tr key={a} className="border-t border-zinc-200 dark:border-zinc-800">
+                    <td className="py-1 pr-4">{a}</td>
+                    <td className="py-1 pr-4 tabular-nums font-medium">{b}</td>
+                    <td className="py-1 text-zinc-500">{c}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="text-zinc-500">
+                <tr>
+                  <th className="py-1 pr-4 font-medium">Every year, trading or not</th>
+                  <th className="py-1 pr-4 font-medium">Cost</th>
+                  <th className="py-1 font-medium">Notes</th>
+                </tr>
+              </thead>
+              <tbody className="align-top">
+                {[
+                  ["Confirmation statement", "£50", "Rose from £34 on 1 February 2026"],
+                  ["Annual accounts", "Free", "Dormant accounts if never traded. Still compulsory"],
+                  ["Corporation Tax return", "Free", "Only once HMRC issues a notice to deliver"],
+                  ["Corporation Tax and VAT", "£0", "Charged on profit and sales. No revenue, nothing due"],
+                ].map(([a, b, c]) => (
+                  <tr key={a} className="border-t border-zinc-200 dark:border-zinc-800">
+                    <td className="py-1 pr-4">{a}</td>
+                    <td className="py-1 pr-4 tabular-nums font-medium">{b}</td>
+                    <td className="py-1 text-zinc-500">{c}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
           <p>
-            The real risk of a dormant company is not the fees, it is
-            forgetting it exists. Filing accounts late costs{" "}
-            <strong>£150</strong> up to a month, £375 to three months, £750 to
-            six, and £1,500 beyond that — and it{" "}
-            <strong>doubles if you are late two years running</strong>. That is
-            a bigger number than anything else on this page, and it is charged
-            on a company earning nothing.
+            Roughly £50 a year to keep a dormant company alive. That is not the
+            risk. The risk is forgetting it exists:
           </p>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="text-zinc-500">
+                <tr>
+                  <th className="py-1 pr-4 font-medium">Accounts filed late by</th>
+                  <th className="py-1 font-medium">Penalty</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ["Up to 1 month", "£150"],
+                  ["1 to 3 months", "£375"],
+                  ["3 to 6 months", "£750"],
+                  ["More than 6 months", "£1,500"],
+                  ["Two years running", "Doubled"],
+                ].map(([a, b]) => (
+                  <tr key={a} className="border-t border-zinc-200 dark:border-zinc-800">
+                    <td className="py-1 pr-4">{a}</td>
+                    <td className="py-1 tabular-nums font-medium">{b}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
           <p>
-            So do not incorporate months before you need to. The company is
-            worth starting when you are close to placing a first order, because
-            that is when the EORI and the bank account matter. If you are only
-            exploring, you have not lost anything by waiting.
+            That is a bigger number than anything else on this page, charged on
+            a company earning nothing. So do not incorporate months before you
+            need to. The company is worth starting when you are close to placing
+            a first order, because that is when the EORI and the bank account
+            matter, and the EORI cannot be applied for until the company exists.
+            If you are still choosing a product, waiting costs you nothing.
+          </p>
+
+          <p className="text-zinc-500">
+            Closing a company you no longer want is £13 by voluntary strike off.
           </p>
         </Chapter>
 
