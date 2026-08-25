@@ -276,6 +276,26 @@ export default function PlaybookPage() {
           </div>
 
           <p>
+            All of that applies whether or not you have earned a penny.
+            Companies House filings are about the company existing rather than
+            trading, so a company that has never sold anything still files
+            dormant accounts and a confirmation statement, and still collects
+            the penalties below if it does not.
+          </p>
+          <p>
+            HMRC is the one place you can opt out. Once you have told them the
+            company is dormant for Corporation Tax you stop filing returns,
+            unless they send a fresh notice to deliver — and if a notice has
+            already been issued you must file that one, even if every figure on
+            it is zero.{" "}
+            <strong>
+              Be aware that dormancy at Companies House and dormancy at HMRC are
+              separate statuses with separate rules.
+            </strong>{" "}
+            Telling one does not tell the other, and being dormant for HMRC
+            excuses nothing at Companies House.
+          </p>
+          <p>
             Roughly £50 a year to keep a dormant company alive. That is not the
             risk. The risk is forgetting it exists:
           </p>
