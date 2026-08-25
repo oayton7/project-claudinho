@@ -68,11 +68,13 @@ function Step({
   n,
   title,
   cost,
+  href,
   children,
 }: {
   n: string;
   title: string;
   cost: string;
+  href?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -82,6 +84,16 @@ function Step({
           {n}. {title}
         </span>
         <span className="text-xs text-zinc-500">{cost}</span>
+        {href && (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs underline text-zinc-600 dark:text-zinc-400"
+          >
+            open on gov.uk →
+          </a>
+        )}
       </div>
       <p className="mt-1 text-sm leading-6 text-zinc-700 dark:text-zinc-300">
         {children}
@@ -139,6 +151,7 @@ export default function PlaybookPage() {
           <Step
             n="1"
             title="Verify your identity, before anything else"
+            href="https://www.gov.uk/guidance/verifying-your-identity-for-companies-house"
             cost="Free"
           >
             Mandatory for every director and person with significant control
@@ -155,7 +168,8 @@ export default function PlaybookPage() {
             </span>
           </Step>
 
-          <Step n="2" title="Register the company" cost="£100, live within 24 hours">
+          <Step n="2" title="Register the company"
+            href="https://www.gov.uk/limited-company-formation/register-your-company" cost="£100, live within 24 hours">
             Online with Companies House. You need the company name, a registered
             office address, your director details and personal code, the
             shareholding, and anyone with more than 25% of shares or votes
@@ -179,7 +193,8 @@ export default function PlaybookPage() {
             account separately and wait again.
           </Step>
 
-          <Step n="4" title="Get a GB EORI number" cost="Free, usually immediate">
+          <Step n="4" title="Get a GB EORI number"
+            href="https://www.gov.uk/eori/apply-for-eori" cost="Free, usually immediate">
             You cannot import without one. It needs your UTR, your business
             start date, your SIC code, and your VAT number if you have one.
             Normally issued immediately; up to five working days if HMRC decides
@@ -192,7 +207,8 @@ export default function PlaybookPage() {
             </span>
           </Step>
 
-          <Step n="5" title="Decide about VAT, and probably wait" cost="Free">
+          <Step n="5" title="Decide about VAT, and probably wait"
+            href="https://www.gov.uk/register-for-vat" cost="Free">
             You must register once turnover passes <strong>£90,000</strong> in
             any twelve months, or if you expect to pass it within 30 days. Below
             that it is voluntary.
@@ -364,8 +380,28 @@ export default function PlaybookPage() {
             yourself. Trading company, get an accountant.
           </p>
 
+          <p>
+            The one worth doing this week is the identity verification. It is
+            free, it never expires, it does not create a company or start any
+            clock, and it is the step that would otherwise block you on the day
+            you actually want to register.
+          </p>
+
           <p className="text-zinc-500">
-            Closing a company you no longer want is £13 by voluntary strike off.
+            The forms themselves:{" "}
+            <a className="underline" href="https://www.gov.uk/government/publications/file-your-dormant-accounts-aa02" target="_blank" rel="noopener noreferrer">
+              dormant accounts (AA02)
+            </a>
+            ,{" "}
+            <a className="underline" href="https://www.gov.uk/dormant-company/dormant-for-corporation-tax" target="_blank" rel="noopener noreferrer">
+              telling HMRC the company is dormant
+            </a>
+            , and{" "}
+            <a className="underline" href="https://www.gov.uk/government/publications/late-filing-penalties/late-filing-penalties" target="_blank" rel="noopener noreferrer">
+              the penalties
+            </a>
+            , worth reading once so the deadlines feel real. Closing a company
+            you no longer want is £13 by voluntary strike off.
           </p>
         </Chapter>
 
