@@ -334,6 +334,36 @@ export default function PlaybookPage() {
             If you are still choosing a product, waiting costs you nothing.
           </p>
 
+          <h3 className="pt-2 font-semibold text-zinc-900 dark:text-zinc-100">
+            Do you need an accountant for this?
+          </h3>
+          <p>
+            For a dormant company, no. Dormant accounts are form{" "}
+            <strong>AA02</strong>, filed online, and the entire form is: company
+            name and number, the balance sheet date, called up share capital not
+            paid, cash at bank and in hand, net assets — each for this year and
+            last — and the number and class of shares issued. For a company that
+            has never traded, most of those are zero and the rest come off the
+            incorporation documents. There is no bookkeeping to do and nothing
+            to reconcile.
+          </p>
+          <p>
+            <strong>The trap is the authentication code.</strong> Filing online
+            needs the company authentication code, which Companies House posts
+            to the registered office and which takes{" "}
+            <strong>up to 10 working days</strong> to arrive. It is a different
+            thing from the personal code used to verify your identity. Request
+            it as soon as the company exists rather than the week accounts are
+            due.
+          </p>
+          <p>
+            Once you are actually trading the answer flips. Imported stock,
+            import VAT and Corporation Tax computations are where a first-timer
+            loses more than the fee, and stock valuation in particular is easy
+            to get wrong in a way that matters. Dormant filings, do them
+            yourself. Trading company, get an accountant.
+          </p>
+
           <p className="text-zinc-500">
             Closing a company you no longer want is £13 by voluntary strike off.
           </p>
