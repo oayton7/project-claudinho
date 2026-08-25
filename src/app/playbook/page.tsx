@@ -64,6 +64,32 @@ function Chapter({
   );
 }
 
+function Step({
+  n,
+  title,
+  cost,
+  children,
+}: {
+  n: string;
+  title: string;
+  cost: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <span className="font-semibold text-zinc-900 dark:text-zinc-100">
+          {n}. {title}
+        </span>
+        <span className="text-xs text-zinc-500">{cost}</span>
+      </div>
+      <p className="mt-1 text-sm leading-6 text-zinc-700 dark:text-zinc-300">
+        {children}
+      </p>
+    </div>
+  );
+}
+
 function Outstanding({ needs }: { needs: string }) {
   return (
     <p className="rounded border border-amber-300 bg-amber-50 p-3 text-sm leading-6 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
@@ -103,8 +129,89 @@ export default function PlaybookPage() {
           date as an expiry rather than a signature.
         </p>
 
-        <Chapter n={1} title="Account setup">
-          <Outstanding needs="Professional account, EORI number, and the verification traps." />
+        <Chapter n={1} title="Setting the business up">
+          <p>
+            Checked against gov.uk on 25 August 2026. Order matters here: each
+            step needs something the one before it produces, and doing them out
+            of sequence means waiting.
+          </p>
+
+          <Step
+            n="1"
+            title="Verify your identity, before anything else"
+            cost="Free"
+          >
+            Mandatory for every director and person with significant control
+            since 18 November 2025, and it has to happen{" "}
+            <strong>before</strong> you can register a company. Do it through
+            GOV.UK One Login, which routes you to an app, online security
+            questions, or photo ID at a participating Post Office. You come out
+            with a <strong>Companies House personal code</strong>. Keep it as
+            carefully as a UTR.
+            <br />
+            <span className="text-zinc-500">
+              The trap: most company formation guides online still predate this
+              and tell you to start at registration. You will get stuck.
+            </span>
+          </Step>
+
+          <Step n="2" title="Register the company" cost="£100, live within 24 hours">
+            Online with Companies House. You need the company name, a registered
+            office address, your director details and personal code, the
+            shareholding, and anyone with more than 25% of shares or votes
+            recorded as a PSC. For SIC code, <strong>47910</strong> is retail
+            sale via mail order or internet, which is what selling on Amazon is.
+            47990 and 46499 are the near neighbours if you want alternatives.
+            <br />
+            <span className="text-zinc-500">
+              Two traps. The fee is £100, not the £50 half the internet still
+              quotes. And your registered office address goes on the public
+              register, so do not use your home address unless you are content
+              with it being searchable forever.
+            </span>
+          </Step>
+
+          <Step n="3" title="Tick the Corporation Tax box while you are there" cost="Free">
+            Registration offers to set you up for Corporation Tax at the same
+            time. It is an <strong>option, not automatic</strong>. Take it,
+            because it produces the UTR that the next step depends on. Miss it
+            and you have to add Corporation Tax services to your business tax
+            account separately and wait again.
+          </Step>
+
+          <Step n="4" title="Get a GB EORI number" cost="Free, usually immediate">
+            You cannot import without one. It needs your UTR, your business
+            start date, your SIC code, and your VAT number if you have one.
+            Normally issued immediately; up to five working days if HMRC decides
+            to check something.
+            <br />
+            <span className="text-zinc-500">
+              The trap: it needs the UTR, so it cannot be done first. This is
+              the step that catches people who leave it until the freight is
+              already moving.
+            </span>
+          </Step>
+
+          <Step n="5" title="Decide about VAT, and probably wait" cost="Free">
+            You must register once turnover passes <strong>£90,000</strong> in
+            any twelve months, or if you expect to pass it within 30 days. Below
+            that it is voluntary.
+            <br />
+            My read for where you are: do not register voluntarily yet. Chapter
+            3 shows what it does to what you can pay a supplier, and on a £20
+            product it takes roughly a third of your headroom. The counter is
+            that registering lets you reclaim import VAT on stock, which is real
+            money on a first order. Which way it nets out depends on your
+            margins and volume, and it is a genuine accountant question rather
+            than one to guess at.
+          </Step>
+
+          <p className="pt-2">
+            After that it is a business bank account and the Amazon
+            Professional seller account, neither of which is gov.uk, and the
+            Amazon one will want the company number and the bank details you
+            just created.
+          </p>
         </Chapter>
 
         <Chapter n={2} title="The fee map">
