@@ -212,6 +212,47 @@ export default function PlaybookPage() {
             Amazon one will want the company number and the bank details you
             just created.
           </p>
+
+          <h3 className="pt-2 font-semibold text-zinc-900 dark:text-zinc-100">
+            What it costs while you are earning nothing
+          </h3>
+          <p>
+            Tax is charged on profit, so no sales means no Corporation Tax and
+            no VAT. But a company is not free to keep alive, and the obligations
+            do not pause because you have not started.
+          </p>
+          <ul className="list-disc space-y-1 pl-5">
+            <li>
+              <strong>Confirmation statement, £50 a year.</strong> Due
+              annually whether or not you have traded. It rose from £34 on 1
+              February 2026.
+            </li>
+            <li>
+              <strong>Annual accounts, free to file, compulsory to file.</strong>{" "}
+              A company that has never traded files dormant accounts, which are
+              short, but they still have to arrive.
+            </li>
+            <li>
+              <strong>A Corporation Tax return, if HMRC asks for one.</strong>{" "}
+              Once they issue a notice to deliver, you file it or you tell them
+              the company is dormant. Ignoring it is not an option.
+            </li>
+          </ul>
+          <p>
+            The real risk of a dormant company is not the fees, it is
+            forgetting it exists. Filing accounts late costs{" "}
+            <strong>£150</strong> up to a month, £375 to three months, £750 to
+            six, and £1,500 beyond that — and it{" "}
+            <strong>doubles if you are late two years running</strong>. That is
+            a bigger number than anything else on this page, and it is charged
+            on a company earning nothing.
+          </p>
+          <p>
+            So do not incorporate months before you need to. The company is
+            worth starting when you are close to placing a first order, because
+            that is when the EORI and the bank account matter. If you are only
+            exploring, you have not lost anything by waiting.
+          </p>
         </Chapter>
 
         <Chapter n={2} title="The fee map">
