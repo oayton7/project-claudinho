@@ -11,6 +11,7 @@
  */
 import { z } from "zod";
 import { toFeeCategory } from "./fees.ts";
+import { complianceBurden } from "./compliance.ts";
 import { maxLandedCostBothVatStates } from "./margin.ts";
 
 export type ProductInput = {
@@ -193,6 +194,14 @@ You will be told what happens to this product at both states. Apply it:
 - Where the fall is severe but survivable, say what he would have to do at the crossing: raise the price, renegotiate the supplier, or improve the margin. Decided in advance, not in a panic.
 - Do not treat voluntary early registration as an obvious answer. It lets him reclaim import VAT on stock, but whether it nets out depends on his margins and volume. That is an accountant question, not one to guess at.
 
+## What importing obliges him to do
+
+Whoever first places goods on the UK market is the producer. Not the factory, not Amazon — him. Some categories carry registration and reporting duties that others do not, and you will be told which apply to this product.
+
+- **Registration duties are admin, not barriers.** Electrical goods and anything containing a battery need producer registration and annual reporting. At his volumes he is far below every threshold that would force him into a paid compliance scheme. Note it in the risks, factor a few hours of paperwork, and do not kill a good product over it.
+- **Marking and documentation are a supplier brief item.** If a product needs a symbol on it or paperwork with it, that has to be agreed before tooling rather than discovered after the first container. Say so in the specific fix if it applies.
+- **A flag saying something needs checking properly is not a verdict.** Where you are told the position is product-specific, say what he needs to find out and score conservatively. Do not invent the requirement.
+
 ## The question you must always ask
 
 **whyHasntSomeoneFixedIt** — if the gap is this obvious, why is it still there? Sometimes there is a real reason: a patent, a supplier who will not do the improved version at low volume, Amazon selling it themselves, or the "flaw" being a deliberate cost decision buyers actually accept. Give your honest best answer. If you think the gap really is just unexploited, say that plainly. Do not manufacture a concern to seem rigorous, and do not wave the question away.
@@ -231,6 +240,13 @@ export function buildJudgePrompt(p: ProductInput): string {
     ? `\n\n**VAT cliff — FLAGGED:** ${vat.why} This is calculated before any supplier quote and against a conservative size tier, so treat it as a repricing question first and a kill only if no realistic price clears it.`
     : `\n\n**VAT cliff:** ${vat.why}`;
 
+  const compliance = complianceBurden({ title: p.name, category: p.category });
+  const complianceNote = compliance.obligations.length
+    ? `\n\n**What importing this obliges him to do:** ${compliance.obligations
+        .map((o) => `${o.what} — ${o.why}`)
+        .join(" ")}`
+    : "";
+
   const weightNote =
     p.weightGrams > WEIGHT_LIMIT_GRAMS
       ? `\n\nNOTE: at ${p.weightGrams}g this is over the ${WEIGHT_LIMIT_GRAMS}g small-and-light guideline. Freight and FBA size tiers will bite. Factor that into your verdict.`
@@ -252,7 +268,7 @@ ${p.reviewComplaints || "(not provided)"}
 **Competition (raw paste — brand names, seller counts, review counts):**
 ${p.competitorNotes || "(not provided)"}
 
-**US signal:** ${usSignalText}${weightNote}${vatNote}`;
+**US signal:** ${usSignalText}${weightNote}${vatNote}${complianceNote}`;
 }
 
 export const PREMORTEM_SYSTEM_PROMPT = `You are running a pre-mortem for a UK first-time Amazon FBA seller with roughly £3,000 of capital, stretchable to about £5,000 for a product that genuinely warrants it who is about to commit money to a product.

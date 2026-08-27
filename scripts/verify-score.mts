@@ -6,6 +6,7 @@
  * about behaviour, so it gets a test rather than a comment.
  */
 import { isMedia } from "../src/lib/exclusions.ts";
+import { complianceBurden } from "../src/lib/compliance.ts";
 import {
   DEFAULT_WEIGHTS,
   autoVerdict,
@@ -257,3 +258,81 @@ if (failed > 0) {
   process.exit(1);
 }
 console.log("\nAll checks passed.");
+
+// ── Producer obligations ──────────────────────────────────────────────────
+//
+// Importing makes you the producer, so a product with an LED in it carries
+// duties a bird bath does not. These flag rather than kill, so the risk being
+// guarded against is not over-blocking but silent wrongness: a flag on the
+// wrong product is noise, and noise gets ignored, which costs the flag its
+// value on the product that needed it.
+const burden = (title: string, category = "") =>
+  complianceBurden({ title, category }).obligations.map((o) => o.what);
+
+assert(
+  "solar lights need WEEE registration",
+  burden("ANGMLN Patio Umbrella Lights Solar Powered Outdoor", "Umbrella Lights").includes(
+    "WEEE producer registration",
+  ),
+);
+assert(
+  "and the batteries inside them count separately",
+  burden("ANGMLN Patio Umbrella Lights Solar Powered Outdoor", "Umbrella Lights").includes(
+    "Battery producer registration",
+  ),
+);
+assert(
+  "a cordless product is caught by the battery rule",
+  burden("Cordless Handheld Vacuum").includes("Battery producer registration"),
+);
+
+// The substring traps. A bare "light" matches "lightweight" and "delighted",
+// and a compliance flag on a storage box is the kind of quiet mistake that
+// takes a morning to find.
+assert(
+  "lightweight is not electrical",
+  burden("Woodluv Lightweight Seagrass Storage Boxes with Lids", "Shelf Baskets").length === 0,
+);
+assert(
+  "a bird bath has no producer duties",
+  burden("35In Metal Bird Bath for Garden, Vintage Freestanding", "Bird Baths").length === 0,
+);
+assert(
+  "nor does a paper towel holder",
+  burden("Paper Towel Holder Chrome Kitchen Roll Holder", "Paper Towel Holders").length === 0,
+);
+assert(
+  "nor a golf grip",
+  burden("Golf Grip Tour Fit Dual Compound Premium Half Cord", "Grips").length === 0,
+);
+
+// Children's products are flagged as needing a proper look rather than
+// answered, because the answer is product-specific and guessing it would be
+// worse than saying nothing.
+assert(
+  "a children's toy is flagged for checking",
+  burden("Wooden Stacking Toy for Toddlers", "Toys & Games").some((w) => w.startsWith("Toy safety")),
+);
+assert(
+  "a dog toy is not a children's toy",
+  burden("SPORTSPET Dog Football with Grab Tabs, Floating Toy", "Interactive Toys").every(
+    (w) => !w.startsWith("Toy safety"),
+  ),
+);
+
+assert(
+  "a hobby kit for adults is not a children's toy, even under Toys & Games",
+  burden("Personalised Diamond Painting Kits for Adults", "Toys & Games").every(
+    (w) => !w.startsWith("Toy safety"),
+  ),
+);
+assert(
+  "but a product for adults and children keeps the flag",
+  burden("Jigsaw Puzzle for Adults and Kids", "Toys & Games").some((w) =>
+    w.startsWith("Toy safety"),
+  ),
+);
+assert(
+  "an empty candidate says so rather than guessing",
+  complianceBurden({}).summary.length > 0,
+);
