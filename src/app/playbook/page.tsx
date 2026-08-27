@@ -380,6 +380,39 @@ export default function PlaybookPage() {
             yourself. Trading company, get an accountant.
           </p>
 
+          <h3 className="pt-2 font-semibold text-zinc-900 dark:text-zinc-100">
+            Which company, and which Amazon account
+          </h3>
+          <p>
+            The entity is a <strong>private company limited by shares</strong>,
+            which is what the standard Companies House registration gives you.
+            Not limited by guarantee, which is for non-profits, and not an LLP.
+          </p>
+          <p>
+            The Amazon account is the <strong>Professional</strong> selling
+            plan, £25 a month plus VAT, against Individual at 75p plus VAT per
+            item sold. On price alone Individual wins until roughly 34 units a
+            month, but price is not the deciding factor. Individual sellers
+            cannot win the Buy Box — the add-to-basket button, where most Amazon
+            sales happen — and cannot run advertising. A new listing with no
+            reviews and no ads is close to invisible, so the £25 buys the
+            ability to sell in the way this plan assumes rather than a
+            convenience.
+          </p>
+          <p>
+            The subscription starts when registration completes rather than when
+            you first list, so open the Seller Central account close to having
+            stock. Expect to be asked for the company registration number, a
+            business bank account in the company name, a credit card, ID for the
+            beneficial owner and proof of address. The bank account has the
+            longest lead time, so open it as soon as the company exists.
+          </p>
+          <p className="text-zinc-500">
+            Those two fees come from UK accountancy guides rather than Amazon
+            directly, and were consistent across several. Confirm the £25 in
+            Seller Central before relying on it.
+          </p>
+
           <p>
             The one worth doing this week is the identity verification. It is
             free, it never expires, it does not create a company or start any
