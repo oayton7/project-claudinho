@@ -401,20 +401,31 @@ async function doOneSlice(request: Request, runId?: string) {
 
       const cursor = run.triage_cursor + slice.length;
       const finished = cursor >= run.triage_queue.length;
+      const wantsJudging =
+        run.params?.stage === "judging" || run.params?.judge === true;
 
       await updateRun(run.id, {
         triage_cursor: cursor,
         triaged: judged,
         spent_pence: spent,
-        status: finished ? "judging" : "triaging",
+        // Only continue into the paid deep look when the run was asked to.
+        //
+        // It used to hand over automatically, and the judging stage takes the
+        // best unjudged candidate anywhere rather than only this run's — so a
+        // scan costing tuppence would quietly start spending ten pence a time
+        // on a backlog that had deliberately been left alone. A scan should
+        // scan. Judging is a separate, deliberate, paid decision.
+        status: finished ? (wantsJudging ? "judging" : "done") : "triaging",
         stage_detail: finished
-          ? "triage done, handing the survivors to the Judge"
+          ? wantsJudging
+            ? "triage done, handing the survivors to the Judge"
+            : "finished. Judging is a separate step"
           : `${run.triage_queue.length - cursor} left to triage`,
       });
 
       return Response.json({
         run: run.id,
-        status: finished ? "judging" : "triaging",
+        status: finished ? (wantsJudging ? "judging" : "done") : "triaging",
         triagedThisTick: slice.length,
         spentPence: Math.round(spent * 100) / 100,
       });
