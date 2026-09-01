@@ -143,8 +143,23 @@ async function doOneSlice(request: Request, runId?: string) {
           else tally.set(leaf.catId, { id: leaf.catId, name: leaf.name, risers: 1 });
         }
 
+        // Optional aim. Without it a run takes whatever the US risers happen
+        // to be growing in, which is the right default — the whole point of
+        // starting from risers is that they pick better than a person ticking
+        // boxes. But it makes a specific question ("is there anything worth
+        // having in higher-priced electricals?") unanswerable, because you
+        // cannot point the thing anywhere.
+        //
+        // A substring match on the category name rather than a category id, so
+        // one word covers a family of leaves that Amazon files separately.
+        const aim = String(run.params?.categoryLike ?? "").trim().toLowerCase();
+        const aimWords = aim ? aim.split(/[,\s]+/).filter(Boolean) : [];
+
         for (const c of tally.values()) {
           if (covered.categories.has(c.name)) continue;
+          if (aimWords.length && !aimWords.some((w) => c.name.toLowerCase().includes(w))) {
+            continue;
+          }
           const held = found.get(c.id);
           if (held) held.risers += c.risers;
           else found.set(c.id, c);
@@ -160,7 +175,9 @@ async function doOneSlice(request: Request, runId?: string) {
         await updateRun(run.id, {
           status: "done",
           stage_detail: "no new categories",
-          error: `Nothing new after ${maxPages} pages of risers. Widen the growth band or the price range.`,
+          error: run.params?.categoryLike
+            ? `Nothing new after ${maxPages} pages of risers matching "${run.params.categoryLike}". Either that band is not growing in the US right now, or it is already covered. Widen the words, the growth band or the price range.`
+            : `Nothing new after ${maxPages} pages of risers. Widen the growth band or the price range.`,
           keepa_tokens_left: tokensLeft,
         });
         return Response.json({ run: run.id, status: "done", categories: 0 });
