@@ -25,6 +25,7 @@ import {
   type RunRow,
   nextToJudge,
   countToJudge,
+  scansStillRunning,
 } from "@/lib/db";
 import { KeepaTokensExhausted } from "@/lib/keepa";
 import {
@@ -455,7 +456,23 @@ async function doOneSlice(request: Request, runId?: string) {
 
       const next = await nextToJudge();
       if (!next) {
-        await updateRun(run.id, { status: "done", stage_detail: "finished" });
+        // Empty pool is not the same as finished. If anything is still
+        // scanning, wait for it rather than declaring victory and leaving the
+        // candidates that arrive ten minutes later with nothing alive to judge
+        // them.
+        const producing = await scansStillRunning();
+        if (producing > 0) {
+          await updateRun(run.id, {
+            stage_detail: `nothing to judge yet, waiting on ${producing} scan(s)`,
+          });
+          return Response.json({
+            run: run.id,
+            status: "judging",
+            waiting: true,
+            note: `Nothing through triage yet. ${producing} scan(s) still running.`,
+          });
+        }
+        await updateRun(run.id, { status: "done", stage_detail: "finished, nothing left to judge" });
         return Response.json({ run: run.id, status: "done" });
       }
 

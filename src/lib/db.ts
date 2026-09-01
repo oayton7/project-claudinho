@@ -924,6 +924,27 @@ async function verdictCounts(): Promise<Record<string, unknown>> {
 }
 
 /**
+ * Are any runs still finding or sweeping?
+ *
+ * A judging run that has emptied the pool is only finished if nothing is still
+ * producing. While scans are running it should wait, because the alternative
+ * is that it declares victory, stops, and the candidates that arrive ten
+ * minutes later sit unjudged with nothing alive to judge them — which turns an
+ * unattended overnight campaign into one that quietly stops after the first
+ * hour.
+ */
+export async function scansStillRunning(): Promise<number> {
+  const db = getDb();
+  const { count, error } = await db
+    .from("runs")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", currentUserId())
+    .in("status", ["queued", "finding", "sweeping", "triaging"]);
+  if (error) return 0;
+  return count ?? 0;
+}
+
+/**
  * What the pipeline looks like right now, for /api/health.
  *
  * Answers the question you actually have at 8am: did anything run overnight,
