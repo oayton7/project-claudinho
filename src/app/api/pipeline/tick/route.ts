@@ -153,7 +153,13 @@ async function doOneSlice(request: Request, runId?: string) {
         // A substring match on the category name rather than a category id, so
         // one word covers a family of leaves that Amazon files separately.
         const aim = String(run.params?.categoryLike ?? "").trim().toLowerCase();
-        const aimWords = aim ? aim.split(/[,\s]+/).filter(Boolean) : [];
+        // Split on commas only. Splitting on whitespace too turned "personal
+        // care" into "personal" and "care", and a bare "care" matches Lawn
+        // Care and Hair Care — so an aim meant to narrow the search quietly
+        // widened it instead.
+        const aimWords = aim
+          ? aim.split(",").map((w) => w.trim()).filter(Boolean)
+          : [];
 
         for (const c of tally.values()) {
           if (covered.categories.has(c.name)) continue;
