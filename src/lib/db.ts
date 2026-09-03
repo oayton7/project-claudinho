@@ -209,6 +209,13 @@ export type ScoutCandidateRow = {
   auto_verdict: "TEST" | "PARK" | "KILL" | null;
   auto_because: string;
   triage_verdict: "TEST" | "PARK" | "KILL" | null;
+  // Written by the deep look. Absent until one has been paid for, which is
+  // the distinction the shortlist ordering depends on.
+  judge_verdict: "TEST" | "PARK" | "KILL" | null;
+  judge_summary: string | null;
+  judge_pence: number | null;
+  judge_missing: string | null;
+  judge_json: Record<string, unknown> | null;
   triage_because: string | null;
   triage_improvability: number | null;
   triage_main_risk: string | null;
