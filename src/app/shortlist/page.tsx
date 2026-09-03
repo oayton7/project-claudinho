@@ -294,12 +294,26 @@ export default function ShortlistPage() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <span
+                      // One verdict, not three. The expensive opinion where
+                      // one exists, the cheap one otherwise, and it says which
+                      // you are looking at — a row that showed a triage TEST
+                      // beside a judged KILL made the reader do the
+                      // reconciling, and four in five of those disagree.
                       className={`inline-block rounded px-2 py-0.5 text-xs font-semibold ${
-                        VERDICT_STYLE[r.triage_verdict ?? ""] ??
-                        "bg-zinc-100 text-zinc-700"
+                        VERDICT_STYLE[
+                          r.judge_verdict ?? r.triage_verdict ?? ""
+                        ] ?? "bg-zinc-100 text-zinc-700"
                       }`}
+                      title={
+                        r.judge_verdict
+                          ? "The deep look — about 10p, read the listing, the numbers and the buyer reviews."
+                          : "A quick look — about 0.2p, one sentence on whether this deserves a proper review."
+                      }
                     >
-                      {r.triage_verdict ?? "not judged"}
+                      {r.judge_verdict ?? r.triage_verdict ?? "not looked at"}
+                    </span>
+                    <span className="ml-2 text-[11px] uppercase tracking-wide text-zinc-400">
+                      {r.judge_verdict ? "deep look" : "quick look"}
                     </span>
                     <a
                       href={`https://www.amazon.co.uk/dp/${r.asin}`}
@@ -324,6 +338,13 @@ export default function ShortlistPage() {
                   </div>
                 </div>
 
+                {/*
+                  One line, always. The reason to look closer, or not to.
+                  Everything below this is behind the toggle: a row that shows
+                  eight statistics, a listing audit and a full judgement before
+                  you have decided whether you care is not information, it is
+                  a wall.
+                */}
                 {r.triage_because && (
                   <p className="mt-3 text-sm leading-6 text-zinc-800 dark:text-zinc-200">
                     {r.triage_because}
@@ -342,52 +363,83 @@ export default function ShortlistPage() {
                   </p>
                 )}
 
-                <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-4">
-                  {[
-                    ["Price", money(r.price)],
-                    [
-                      "Max landed",
-                      money(r.max_landed_cost),
-                      // Spelled out because it is the number most easily
-                      // misread, and misreading it means overpaying. It is a
-                      // ceiling worked backwards from the shelf price, not a
-                      // quote, and "landed" is everything up to the warehouse
-                      // door rather than the factory price.
-                      "The most a unit can cost you, all in, and still clear a 15% net margin. Worked backwards from the price after Amazon's fees, returns and ads — not a supplier quote. Landed means FOB plus freight, duty, prep and, below the VAT threshold, import VAT. Compare a fully loaded cost against this, never a bare FOB price.",
-                    ],
-                    ["Rating", r.rating ?? "—"],
-                    ["Reviews", r.review_count?.toLocaleString("en-GB") ?? "—"],
-                    [
-                      "Unhappy buyers",
-                      r.unhappy_buyers?.toLocaleString("en-GB") ?? "—",
-                    ],
-                    [
-                      "Sold/month",
-                      r.monthly_sold?.toLocaleString("en-GB") ?? "—",
-                    ],
-                    ["Weight", r.weight_grams ? `${r.weight_grams}g` : "—"],
-                    [
-                      "Improvability",
-                      r.triage_improvability === null
-                        ? "—"
-                        : `${r.triage_improvability}/10`,
-                    ],
-                  ].map(([k, v, hint]) => (
-                    <div key={String(k)}>
-                      <dt
-                        className={`text-zinc-500 ${hint ? "cursor-help underline decoration-dotted underline-offset-2" : ""}`}
-                        title={hint ? String(hint) : undefined}
+                {/* The three numbers that decide whether to read on. */}
+                <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+                  <span className="tabular-nums">{money(r.price)}</span>
+                  {r.max_landed_cost ? (
+                    <>
+                      {" · you can pay up to "}
+                      <strong
+                        className="font-medium tabular-nums text-zinc-900 dark:text-zinc-100"
+                        title="The most a unit can cost you all in — FOB plus freight, duty, prep and import VAT — and still clear a 15% net margin. A ceiling worked backwards from the price, not a supplier quote."
                       >
-                        {k}
-                      </dt>
-                      <dd className="tabular-nums text-zinc-800 dark:text-zinc-200">
-                        {String(v)}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
+                        {money(r.max_landed_cost)}
+                      </strong>
+                    </>
+                  ) : null}
+                  {r.unhappy_buyers
+                    ? ` · ${r.unhappy_buyers.toLocaleString("en-GB")} unhappy buyers`
+                    : ""}
+                </p>
 
-                {r.listing_weaknesses && (
+                <button
+                  onClick={() => setOpen(open === r.asin ? null : r.asin)}
+                  className="mt-3 text-xs font-medium text-zinc-600 underline dark:text-zinc-400"
+                >
+                  {open === r.asin ? "Less" : "The detail"}
+                </button>
+
+                {open === r.asin && (
+                  <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-4">
+                    {[
+                      ["Price", money(r.price)],
+                      [
+                        "Max landed",
+                        money(r.max_landed_cost),
+                        // Spelled out because it is the number most easily
+                        // misread, and misreading it means overpaying. It is a
+                        // ceiling worked backwards from the shelf price, not a
+                        // quote, and "landed" is everything up to the warehouse
+                        // door rather than the factory price.
+                        "The most a unit can cost you, all in, and still clear a 15% net margin. Worked backwards from the price after Amazon's fees, returns and ads — not a supplier quote. Landed means FOB plus freight, duty, prep and, below the VAT threshold, import VAT. Compare a fully loaded cost against this, never a bare FOB price.",
+                      ],
+                      ["Rating", r.rating ?? "—"],
+                      [
+                        "Reviews",
+                        r.review_count?.toLocaleString("en-GB") ?? "—",
+                      ],
+                      [
+                        "Unhappy buyers",
+                        r.unhappy_buyers?.toLocaleString("en-GB") ?? "—",
+                      ],
+                      [
+                        "Sold/month",
+                        r.monthly_sold?.toLocaleString("en-GB") ?? "—",
+                      ],
+                      ["Weight", r.weight_grams ? `${r.weight_grams}g` : "—"],
+                      [
+                        "Improvability",
+                        r.triage_improvability === null
+                          ? "—"
+                          : `${r.triage_improvability}/10`,
+                      ],
+                    ].map(([k, v, hint]) => (
+                      <div key={String(k)}>
+                        <dt
+                          className={`text-zinc-500 ${hint ? "cursor-help underline decoration-dotted underline-offset-2" : ""}`}
+                          title={hint ? String(hint) : undefined}
+                        >
+                          {k}
+                        </dt>
+                        <dd className="tabular-nums text-zinc-800 dark:text-zinc-200">
+                          {String(v)}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+
+                {open === r.asin && r.listing_weaknesses && (
                   <p className="mt-3 text-xs leading-5 text-emerald-700 dark:text-emerald-400">
                     <strong className="font-medium">
                       Their listing is missing:
