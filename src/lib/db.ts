@@ -530,10 +530,22 @@ export async function listShortlist(
     if (!held || (row.score ?? 0) > (held.score ?? 0)) byParent.set(key, row);
   }
 
+  // Order by the best opinion available, not the cheapest one.
+  //
+  // This sorted on the triage verdict alone, which meant a product that had
+  // survived the 10p deep look sat in the same pile as one nobody had looked
+  // at properly — and since the deep look rejects about four in five, those
+  // piles mean very different things. The expensive opinion overrules the
+  // cheap one wherever it exists, and among equals a confirmed TEST outranks
+  // an unconfirmed one.
   const rank = { TEST: 0, PARK: 1, KILL: 2 } as const;
+  const verdictOf = (r: ScoutCandidateRow) =>
+    (r.judge_verdict ?? r.triage_verdict ?? "KILL") as "TEST" | "PARK" | "KILL";
+
   return [...byParent.values()].sort(
     (a, b) =>
-      (rank[a.triage_verdict ?? "KILL"] ?? 3) - (rank[b.triage_verdict ?? "KILL"] ?? 3) ||
+      (rank[verdictOf(a)] ?? 3) - (rank[verdictOf(b)] ?? 3) ||
+      Number(Boolean(b.judge_verdict)) - Number(Boolean(a.judge_verdict)) ||
       (b.score ?? 0) - (a.score ?? 0),
   );
 }

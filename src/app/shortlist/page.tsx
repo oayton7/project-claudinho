@@ -14,6 +14,9 @@ export default function ShortlistPage() {
   const [rows, setRows] = useState<ScoutCandidateRow[]>([]);
   const [counts, setCounts] = useState({ test: 0, park: 0, killed: 0 });
   const [showKilled, setShowKilled] = useState(false);
+  // The seven that survived the expensive opinion are the actual shortlist.
+  // Everything else is a candidate for one.
+  const [survivorsOnly, setSurvivorsOnly] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [deepening, setDeepening] = useState<string | null>(null);
@@ -57,10 +60,24 @@ export default function ShortlistPage() {
    */
   function exportCsv() {
     const cols = [
-      "verdict", "score", "asin", "title", "brand", "category",
-      "price", "maxLandedCost", "rating", "reviews", "unhappyBuyers",
-      "monthlySold", "weightG", "improvability", "why", "mainRisk",
-      "listingGaps", "amazonUrl",
+      "verdict",
+      "score",
+      "asin",
+      "title",
+      "brand",
+      "category",
+      "price",
+      "maxLandedCost",
+      "rating",
+      "reviews",
+      "unhappyBuyers",
+      "monthlySold",
+      "weightG",
+      "improvability",
+      "why",
+      "mainRisk",
+      "listingGaps",
+      "amazonUrl",
     ];
     const cell = (v: unknown) => {
       const t = v === null || v === undefined ? "" : String(v);
@@ -73,15 +90,32 @@ export default function ShortlistPage() {
     const visible = showKilled ? rows : rows.filter((r) => !r.killed_reason);
     const lines = visible.map((r) =>
       [
-        r.triage_verdict, r.score, r.asin, r.title, r.brand, r.category,
-        r.price, r.max_landed_cost, r.rating, r.review_count, r.unhappy_buyers,
-        r.monthly_sold, r.weight_grams, r.triage_improvability,
-        r.triage_because, r.triage_main_risk, r.listing_weaknesses,
+        r.triage_verdict,
+        r.score,
+        r.asin,
+        r.title,
+        r.brand,
+        r.category,
+        r.price,
+        r.max_landed_cost,
+        r.rating,
+        r.review_count,
+        r.unhappy_buyers,
+        r.monthly_sold,
+        r.weight_grams,
+        r.triage_improvability,
+        r.triage_because,
+        r.triage_main_risk,
+        r.listing_weaknesses,
         `https://www.amazon.co.uk/dp/${r.asin}`,
-      ].map(cell).join(","),
+      ]
+        .map(cell)
+        .join(","),
     );
     const csv = [cols.join(","), ...lines].join("\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const url = URL.createObjectURL(
+      new Blob([csv], { type: "text/csv;charset=utf-8" }),
+    );
     const a = document.createElement("a");
     a.href = url;
     a.download = `claudinho-shortlist-${new Date().toISOString().slice(0, 10)}.csv`;
@@ -124,7 +158,9 @@ export default function ShortlistPage() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(`/api/shortlist${showKilled ? "?killed=1" : ""}`);
+      const response = await fetch(
+        `/api/shortlist${showKilled ? "?killed=1" : ""}`,
+      );
       const data = await response.json();
       if (!response.ok) {
         setError(data.error ?? "Could not load the shortlist");
@@ -143,7 +179,8 @@ export default function ShortlistPage() {
     void load();
   }, [load]);
 
-  const money = (n: number | null) => (n === null ? "—" : `£${Number(n).toFixed(2)}`);
+  const money = (n: number | null) =>
+    n === null ? "—" : `£${Number(n).toFixed(2)}`;
 
   return (
     <div className="flex flex-1 flex-col items-center bg-zinc-50 font-sans dark:bg-black">
@@ -176,7 +213,9 @@ export default function ShortlistPage() {
           {[
             ["TEST", counts.test],
             ["PARK", counts.park],
-            ...(showKilled ? ([["KILL", counts.killed]] as [string, number][]) : []),
+            ...(showKilled
+              ? ([["KILL", counts.killed]] as [string, number][])
+              : []),
           ].map(([label, n]) => (
             <span
               key={String(label)}
@@ -191,6 +230,20 @@ export default function ShortlistPage() {
             className="ml-auto rounded border border-zinc-400 px-3 py-1 text-xs font-medium text-zinc-800 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-200"
           >
             Export CSV
+          </button>
+          <button
+            onClick={() => setSurvivorsOnly((v) => !v)}
+            className={`rounded px-3 py-1 text-xs font-medium ${
+              survivorsOnly
+                ? "bg-emerald-600 text-white"
+                : "border border-zinc-400 text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
+            }`}
+          >
+            {survivorsOnly ? "Showing" : "Show"} only what survived the deep
+            look
+            {survivorsOnly
+              ? ""
+              : ` (${rows.filter((r) => r.judge_verdict === "TEST").length})`}
           </button>
           <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
             <input
@@ -230,7 +283,10 @@ export default function ShortlistPage() {
           </div>
         ) : (
           <ul className="mt-6 space-y-4">
-            {rows.map((r) => (
+            {(survivorsOnly
+              ? rows.filter((r) => r.judge_verdict === "TEST")
+              : rows
+            ).map((r) => (
               <li
                 key={r.asin}
                 className="rounded border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950"
@@ -239,7 +295,8 @@ export default function ShortlistPage() {
                   <div className="min-w-0 flex-1">
                     <span
                       className={`inline-block rounded px-2 py-0.5 text-xs font-semibold ${
-                        VERDICT_STYLE[r.triage_verdict ?? ""] ?? "bg-zinc-100 text-zinc-700"
+                        VERDICT_STYLE[r.triage_verdict ?? ""] ??
+                        "bg-zinc-100 text-zinc-700"
                       }`}
                     >
                       {r.triage_verdict ?? "not judged"}
@@ -261,7 +318,9 @@ export default function ShortlistPage() {
                     <span className="block text-2xl font-semibold tabular-nums text-black dark:text-zinc-100">
                       {r.score ?? "—"}
                     </span>
-                    <span className="block text-[10px] text-zinc-500">score</span>
+                    <span className="block text-[10px] text-zinc-500">
+                      score
+                    </span>
                   </div>
                 </div>
 
@@ -278,7 +337,8 @@ export default function ShortlistPage() {
                 )}
                 {r.killed_reason && (
                   <p className="mt-1 text-sm leading-6 text-red-800 dark:text-red-400">
-                    <strong className="font-medium">Hard kill:</strong> {r.killed_reason}
+                    <strong className="font-medium">Hard kill:</strong>{" "}
+                    {r.killed_reason}
                   </p>
                 )}
 
@@ -288,12 +348,20 @@ export default function ShortlistPage() {
                     ["Max landed", money(r.max_landed_cost)],
                     ["Rating", r.rating ?? "—"],
                     ["Reviews", r.review_count?.toLocaleString("en-GB") ?? "—"],
-                    ["Unhappy buyers", r.unhappy_buyers?.toLocaleString("en-GB") ?? "—"],
-                    ["Sold/month", r.monthly_sold?.toLocaleString("en-GB") ?? "—"],
+                    [
+                      "Unhappy buyers",
+                      r.unhappy_buyers?.toLocaleString("en-GB") ?? "—",
+                    ],
+                    [
+                      "Sold/month",
+                      r.monthly_sold?.toLocaleString("en-GB") ?? "—",
+                    ],
                     ["Weight", r.weight_grams ? `${r.weight_grams}g` : "—"],
                     [
                       "Improvability",
-                      r.triage_improvability === null ? "—" : `${r.triage_improvability}/10`,
+                      r.triage_improvability === null
+                        ? "—"
+                        : `${r.triage_improvability}/10`,
                     ],
                   ].map(([k, v]) => (
                     <div key={String(k)}>
@@ -307,7 +375,9 @@ export default function ShortlistPage() {
 
                 {r.listing_weaknesses && (
                   <p className="mt-3 text-xs leading-5 text-emerald-700 dark:text-emerald-400">
-                    <strong className="font-medium">Their listing is missing:</strong>{" "}
+                    <strong className="font-medium">
+                      Their listing is missing:
+                    </strong>{" "}
                     {r.listing_weaknesses.split(" · ").join(", ")}
                   </p>
                 )}
@@ -317,11 +387,12 @@ export default function ShortlistPage() {
                     <div className="flex flex-wrap items-baseline justify-between gap-2">
                       <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
                         The deep look
-                        {r.judge_verdict && r.judge_verdict !== r.triage_verdict && (
-                          <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-200">
-                            disagrees with triage: {r.judge_verdict}
-                          </span>
-                        )}
+                        {r.judge_verdict &&
+                          r.judge_verdict !== r.triage_verdict && (
+                            <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                              disagrees with triage: {r.judge_verdict}
+                            </span>
+                          )}
                       </span>
                       <button
                         onClick={() => setOpen(open === r.asin ? null : r.asin)}
@@ -338,7 +409,9 @@ export default function ShortlistPage() {
                       <div className="mt-3 space-y-3 border-t border-zinc-200 pt-3 text-sm leading-6 dark:border-zinc-800">
                         {r.judge_json.specificFix && (
                           <p className="text-emerald-800 dark:text-emerald-400">
-                            <strong className="font-medium">What you would do differently:</strong>{" "}
+                            <strong className="font-medium">
+                              What you would do differently:
+                            </strong>{" "}
                             {r.judge_json.specificFix}
                           </p>
                         )}
@@ -352,7 +425,9 @@ export default function ShortlistPage() {
                         )}
                         {r.judge_json.targetBuyer?.who && (
                           <p className="text-zinc-800 dark:text-zinc-200">
-                            <strong className="font-medium">Who buys it:</strong>{" "}
+                            <strong className="font-medium">
+                              Who buys it:
+                            </strong>{" "}
                             {r.judge_json.targetBuyer.who}
                             {r.judge_json.targetBuyer.reasoning
                               ? ` — ${r.judge_json.targetBuyer.reasoning}`
@@ -360,9 +435,10 @@ export default function ShortlistPage() {
                           </p>
                         )}
                         {["improvability", "marketability"].map((section) => {
-                          const block = r.judge_json?.[
-                            section as "improvability" | "marketability"
-                          ];
+                          const block =
+                            r.judge_json?.[
+                              section as "improvability" | "marketability"
+                            ];
                           if (!block) return null;
                           return (
                             <div key={section}>
@@ -371,9 +447,15 @@ export default function ShortlistPage() {
                               </p>
                               <ul className="mt-1 space-y-1">
                                 {Object.entries(block).map(([k, v]) => (
-                                  <li key={k} className="text-zinc-700 dark:text-zinc-300">
+                                  <li
+                                    key={k}
+                                    className="text-zinc-700 dark:text-zinc-300"
+                                  >
                                     <strong className="font-medium">
-                                      {k} {v?.score !== undefined ? `${v.score}/5` : ""}
+                                      {k}{" "}
+                                      {v?.score !== undefined
+                                        ? `${v.score}/5`
+                                        : ""}
                                     </strong>
                                     {v?.reasoning ? ` — ${v.reasoning}` : ""}
                                   </li>
@@ -389,7 +471,10 @@ export default function ShortlistPage() {
                             </p>
                             <ul className="mt-1 list-disc space-y-1 pl-5">
                               {(r.judge_json.concerns ?? []).map((c) => (
-                                <li key={c} className="text-amber-800 dark:text-amber-400">
+                                <li
+                                  key={c}
+                                  className="text-amber-800 dark:text-amber-400"
+                                >
                                   {c}
                                 </li>
                               ))}
@@ -420,7 +505,9 @@ export default function ShortlistPage() {
                       disabled={promoting !== null}
                       className="rounded bg-black px-2.5 py-1 font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-black"
                     >
-                      {promoting === r.asin ? "Promoting…" : "Promote to product"}
+                      {promoting === r.asin
+                        ? "Promoting…"
+                        : "Promote to product"}
                     </button>
                   )}
                   {!r.judge_summary && (
@@ -429,7 +516,9 @@ export default function ShortlistPage() {
                       disabled={deepening !== null}
                       className="rounded border border-zinc-400 px-2.5 py-1 font-medium text-zinc-800 disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-200"
                     >
-                      {deepening === r.asin ? "Thinking, about a minute…" : "Go deeper (~10p)"}
+                      {deepening === r.asin
+                        ? "Thinking, about a minute…"
+                        : "Go deeper (~10p)"}
                     </button>
                   )}
                   <Link href={`/margin?asin=${r.asin}`} className="underline">
