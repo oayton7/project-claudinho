@@ -352,9 +352,26 @@ export default function ShortlistPage() {
                   you have decided whether you care is not information, it is
                   a wall.
                 */}
+                {/*
+                  Trimmed when collapsed. The judge's summary runs to a couple
+                  of hundred words — it is genuinely worth reading, which is
+                  the problem: dropped in whole it replaced a one-line reason
+                  with twenty lines, and a list of ninety of those is the wall
+                  this change existed to remove. The whole thing is inside The
+                  detail, where you have asked for it.
+                */}
                 {(r.judge_summary || r.triage_because) && (
                   <p className="mt-3 text-sm leading-6 text-zinc-800 dark:text-zinc-200">
-                    {r.judge_summary || r.triage_because}
+                    {(() => {
+                      const text = r.judge_summary || r.triage_because || "";
+                      if (open === r.asin || text.length <= 240) return text;
+                      const cut = text.slice(0, 240);
+                      const end = Math.max(
+                        cut.lastIndexOf(". "),
+                        cut.lastIndexOf(" — "),
+                      );
+                      return `${end > 120 ? cut.slice(0, end + 1) : cut.trimEnd()}…`;
+                    })()}
                   </p>
                 )}
                 {open === r.asin && r.triage_main_risk && (
