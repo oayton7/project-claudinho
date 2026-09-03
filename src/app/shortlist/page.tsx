@@ -345,7 +345,16 @@ export default function ShortlistPage() {
                 <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-4">
                   {[
                     ["Price", money(r.price)],
-                    ["Max landed", money(r.max_landed_cost)],
+                    [
+                      "Max landed",
+                      money(r.max_landed_cost),
+                      // Spelled out because it is the number most easily
+                      // misread, and misreading it means overpaying. It is a
+                      // ceiling worked backwards from the shelf price, not a
+                      // quote, and "landed" is everything up to the warehouse
+                      // door rather than the factory price.
+                      "The most a unit can cost you, all in, and still clear a 15% net margin. Worked backwards from the price after Amazon's fees, returns and ads — not a supplier quote. Landed means FOB plus freight, duty, prep and, below the VAT threshold, import VAT. Compare a fully loaded cost against this, never a bare FOB price.",
+                    ],
                     ["Rating", r.rating ?? "—"],
                     ["Reviews", r.review_count?.toLocaleString("en-GB") ?? "—"],
                     [
@@ -363,9 +372,14 @@ export default function ShortlistPage() {
                         ? "—"
                         : `${r.triage_improvability}/10`,
                     ],
-                  ].map(([k, v]) => (
+                  ].map(([k, v, hint]) => (
                     <div key={String(k)}>
-                      <dt className="text-zinc-500">{k}</dt>
+                      <dt
+                        className={`text-zinc-500 ${hint ? "cursor-help underline decoration-dotted underline-offset-2" : ""}`}
+                        title={hint ? String(hint) : undefined}
+                      >
+                        {k}
+                      </dt>
                       <dd className="tabular-nums text-zinc-800 dark:text-zinc-200">
                         {String(v)}
                       </dd>

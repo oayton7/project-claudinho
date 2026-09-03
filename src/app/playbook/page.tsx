@@ -610,27 +610,98 @@ export default function PlaybookPage() {
           </p>
         </Chapter>
 
-        <Chapter n={5} title="Importing">
+        <Chapter n={5} title="What max landed cost actually means">
+          <p>
+            The most easily misread number the tool produces, and misreading it
+            means overpaying.
+          </p>
+          <p>
+            It is <strong>not a quote and not a guess at what suppliers
+            charge</strong>. Nothing here has ever contacted a supplier. It is
+            the margin engine run backwards: start at the shelf price, subtract
+            the referral fee, the FBA fee, the fuel surcharge, the digital
+            services fee, storage, a returns provision and advertising, then
+            subtract the 15% net margin you intend to keep. Whatever is left is
+            the most a unit can cost you and still work. The 30% capital rule is
+            applied as well, and whichever bites first is the one reported.
+          </p>
+          <p>
+            So it is the number you take <em>into</em> a supplier conversation
+            rather than one that comes out of it. The tool cannot know your
+            cost. It can tell you the point past which the product stops being
+            worth doing.
+          </p>
+          <p>
+            <strong>The trap.</strong> &quot;Landed&quot; means everything up to
+            the warehouse door, not the factory price:
+          </p>
+          <p className="rounded border border-zinc-200 bg-white p-3 font-medium dark:border-zinc-800 dark:bg-zinc-950">
+            FOB price + freight + duty + prep + import VAT while below the
+            threshold
+          </p>
+          <p>
+            If the ceiling says £8 and a supplier quotes $9 FOB, that is not
+            comfortably inside it. Add shipping, duty and prep and you may be at
+            £9.50 landed and underwater. Always compare a fully loaded cost
+            against the ceiling, never a bare FOB price.
+          </p>
+          <p>
+            <strong>Three percentages, doing different jobs.</strong> They are
+            easy to run together and they are not the same number.
+          </p>
+          <ul className="list-disc space-y-1 pl-5">
+            <li>
+              <strong>15% is the margin target</strong> — the net profit kept
+              per unit after Amazon&apos;s fees, returns and advertising.
+            </li>
+            <li>
+              <strong>30% is a cost ratio, not a margin</strong> — landed cost
+              must not exceed 30% of the shelf price, so that stock does not eat
+              the room needed to absorb a fee rise or a price war.
+            </li>
+            <li>
+              <strong>40% is the capital rule</strong> — no single order ties up
+              more than 40% of working capital.
+            </li>
+          </ul>
+          <p>
+            On a £30 product with a £9 ceiling: pay £9 all in and you keep about
+            £4.50 a unit. Not £9, and not 30% of it.
+          </p>
+          <p>
+            The ceiling is deliberately pessimistic. Where the packaging
+            dimensions are unknown it assumes the worst FBA size tier, so the
+            real ceiling is often a little higher than shown. A flattering
+            estimate is worse than no estimate, because you act on it.
+          </p>
+          <p>
+            The gap between the ceiling and your real landed cost is the profit.
+            The wider it is, the more room you have when Amazon raises a fee or
+            somebody undercuts you.
+          </p>
+        </Chapter>
+
+        <Chapter n={6} title="Importing">
           <Outstanding needs="HS codes, freight forwarders, DDP against FOB, prep centres, and the current state of the £135 relief." />
         </Chapter>
 
-        <Chapter n={6} title="Compliance by category">
+        <Chapter n={7} title="Compliance by category">
           <Outstanding needs="UKCA marking, what needs testing, and what to avoid entirely." />
         </Chapter>
 
-        <Chapter n={7} title="Sourcing">
+        <Chapter n={8} title="Sourcing">
           <Outstanding needs="Vetting suppliers, the sample protocol, negotiating MOQ, QC, and the classic scams." />
         </Chapter>
 
-        <Chapter n={8} title="Listing mechanics">
+        <Chapter n={9} title="Listing mechanics">
           <Outstanding needs="Keywords, images, A+ content, and the first-review problem." />
         </Chapter>
 
-        <Chapter n={9} title="Launch">
+        <Chapter n={10} title="Launch">
           <Outstanding needs="PPC structure, budget, and what good looks like in week one." />
         </Chapter>
 
-        <Chapter n={10} title="The pitfalls file">
+        <Chapter n={11} title="The pitfalls file">
           <p>
             Every mistake, written down as it happens. The plan reckons this is
             the most valuable chapter by month six, and it only works if it is
