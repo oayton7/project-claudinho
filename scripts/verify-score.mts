@@ -7,6 +7,7 @@
  */
 import { isMedia } from "../src/lib/exclusions.ts";
 import { complianceBurden } from "../src/lib/compliance.ts";
+import { viability, rankByViability } from "../src/lib/viability.ts";
 import {
   DEFAULT_WEIGHTS,
   autoVerdict,
@@ -336,3 +337,70 @@ assert(
   "an empty candidate says so rather than guessing",
   complianceBurden({}).summary.length > 0,
 );
+
+// ── Viability ─────────────────────────────────────────────────────────────
+//
+// Ranks the survivors of the deep look against each other. Not "is it good",
+// which the Judge answered, but "given it is good, how hard will it be" — the
+// constraint being £3,000 and one person.
+const viable = {
+  asin: "B000000001",
+  title: "Metal Bird Bath for Garden",
+  category: "Bird Baths",
+  price: 34.99,
+  maxLandedCost: 8,
+  unhappyBuyers: 600,
+  weightGrams: 400,
+  improvability: 7,
+  hasReviews: true,
+};
+
+assert(
+  "reading the reviews beats not reading them",
+  viability(viable).score > viability({ ...viable, hasReviews: false }).score,
+);
+assert(
+  "and not reading them is named as the binding constraint",
+  viability({ ...viable, hasReviews: false }).bindingConstraint.toLowerCase().includes("review"),
+);
+assert(
+  "more room to improve scores higher",
+  viability({ ...viable, improvability: 9 }).score > viability({ ...viable, improvability: 3 }).score,
+);
+assert(
+  "a competent product is limited by improvability",
+  viability({ ...viable, improvability: 3 }).bindingConstraint.toLowerCase().includes("improvab"),
+);
+assert(
+  "producer obligations cost it points",
+  viability({ ...viable, title: "Solar Powered Garden Lights" }).score < viability(viable).score,
+);
+assert(
+  "being over the weight guideline costs it points",
+  viability({ ...viable, weightGrams: 1400 }).score < viability(viable).score,
+);
+// A high landed ceiling is the unaffordable one, not a low one: at £20 a unit
+// even 100 units is £2,000, which is two thirds of the capital against a 40%
+// cap. The first version of this asserted the opposite and was simply wrong
+// about the direction.
+assert(
+  "an unaffordable landed ceiling is named",
+  viability({ ...viable, maxLandedCost: 20 }).bindingConstraint.toLowerCase().includes("capital"),
+  viability({ ...viable, maxLandedCost: 20 }).bindingConstraint.slice(0, 60),
+);
+assert(
+  "a cheap unit is comfortably fundable",
+  viability({ ...viable, maxLandedCost: 3 }).score >
+    viability({ ...viable, maxLandedCost: 20 }).score,
+);
+assert(
+  "ranking puts the better product first",
+  rankByViability([
+    { ...viable, asin: "WORSE", improvability: 3, hasReviews: false },
+    { ...viable, asin: "BETTER", improvability: 9 },
+  ])[0].asin === "BETTER",
+);
+assert("a score stays inside 0 to 100", (() => {
+  const v = viability(viable).score;
+  return v >= 0 && v <= 100;
+})(), String(viability(viable).score));
