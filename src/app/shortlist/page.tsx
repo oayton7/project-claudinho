@@ -167,7 +167,18 @@ export default function ShortlistPage() {
         return;
       }
       setRows(data.rows);
-      setCounts({ test: data.test, park: data.park, killed: data.killed });
+      // Counted the same way the rows are sorted and badged: the expensive
+      // opinion wherever one exists. Counting triage verdicts here while the
+      // rows showed judge verdicts meant the header disagreed with the list
+      // underneath it.
+      const rowsIn = (data.rows ?? []) as ScoutCandidateRow[];
+      const best = (r: ScoutCandidateRow) =>
+        r.judge_verdict ?? r.triage_verdict;
+      setCounts({
+        test: rowsIn.filter((r) => best(r) === "TEST").length,
+        park: rowsIn.filter((r) => best(r) === "PARK").length,
+        killed: rowsIn.filter((r) => best(r) === "KILL").length,
+      });
     } catch {
       setError("Could not reach the server.");
     } finally {
@@ -195,18 +206,14 @@ export default function ShortlistPage() {
           Shortlist
         </h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-          Everything the tool has decided, and why. TEST first, because those
-          are the ones to act on. PARK next, because &quot;why did you park
-          this&quot; is worth being able to answer — a parked product is often
-          the one you come back to when a supplier quote changes.
-          <br />
-          <br />
-          The one-line reason is the summary, not the ceiling.{" "}
-          <strong className="font-medium">Go deeper</strong> spends about 10p
-          and a minute on the full analysis: who buys it, what specifically you
-          would do differently, why nobody has already, and what would sink it.
-          A button rather than a stage, because running it on everything means
-          paying for opinions nobody reads.
+          Everything the tool has decided, and why, best opinion first. Each row
+          shows one verdict: <strong className="font-medium">deep look</strong>{" "}
+          where a full analysis has been paid for,{" "}
+          <strong className="font-medium">quick look</strong> where only the
+          cheap one has. The deep look rejects about four in five of what the
+          quick one passes, so the two mean very different things. Open{" "}
+          <strong className="font-medium">The detail</strong> for the numbers,
+          the listing audit and the full judgement.
         </p>
 
         <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -345,12 +352,12 @@ export default function ShortlistPage() {
                   you have decided whether you care is not information, it is
                   a wall.
                 */}
-                {r.triage_because && (
+                {(r.judge_summary || r.triage_because) && (
                   <p className="mt-3 text-sm leading-6 text-zinc-800 dark:text-zinc-200">
-                    {r.triage_because}
+                    {r.judge_summary || r.triage_because}
                   </p>
                 )}
-                {r.triage_main_risk && (
+                {open === r.asin && r.triage_main_risk && (
                   <p className="mt-1 text-sm leading-6 text-amber-800 dark:text-amber-400">
                     <strong className="font-medium">Main risk:</strong>{" "}
                     {r.triage_main_risk}
@@ -448,7 +455,7 @@ export default function ShortlistPage() {
                   </p>
                 )}
 
-                {r.judge_summary && (
+                {open === r.asin && r.judge_summary && (
                   <div className="mt-3 rounded border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
                     <div className="flex flex-wrap items-baseline justify-between gap-2">
                       <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
