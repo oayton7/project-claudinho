@@ -249,6 +249,13 @@ export type ScoutCandidateInput = Omit<
   | "triage_improvability"
   | "triage_main_risk"
   | "triage_at"
+  // Written only by the deep look, never at discovery, so an insert must not
+  // be made to supply them.
+  | "judge_verdict"
+  | "judge_summary"
+  | "judge_pence"
+  | "judge_missing"
+  | "judge_json"
   | "us_avg365_rank"
   | "us_current_rank"
   | "us_growth_ratio"
