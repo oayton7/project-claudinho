@@ -57,7 +57,22 @@ export async function GET() {
     error: e instanceof Error ? e.message : "unavailable",
   }));
 
+  // Which build is actually live.
+  //
+  // Added after an afternoon of not being able to answer "has my change
+  // deployed yet". Every environment variable question turns into this
+  // question, and without it the only options are guessing or waiting.
+  // Vercel sets these at build time; locally they are absent, which is itself
+  // the right answer.
+  const build = {
+    commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local",
+    deployedAt: process.env.VERCEL_DEPLOYMENT_ID ? undefined : "not a Vercel build",
+    environment: process.env.VERCEL_ENV ?? "development",
+    message: process.env.VERCEL_GIT_COMMIT_MESSAGE?.slice(0, 80) ?? null,
+  };
+
   return Response.json({
+    build,
     usage,
     pipeline,
     watchdog: {
