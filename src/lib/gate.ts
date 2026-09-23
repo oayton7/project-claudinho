@@ -36,3 +36,27 @@ export function safeEqual(a: string, b: string): boolean {
   }
   return differing === 0;
 }
+
+/**
+ * The configured site password, cleaned of the ways it usually arrives wrong.
+ *
+ * Whitespace was already trimmed, because a password pasted into a hosting
+ * dashboard very often picks up a trailing space. Surrounding quotes are the
+ * same problem: a value typed as "hunter2" is stored with the quote marks, and
+ * the person then types it without them and is told they are wrong. It cost an
+ * afternoon, and the health endpoint reporting 12 characters for a 10
+ * character password is what finally gave it away.
+ *
+ * Only matched quotes at both ends are removed, so a password that genuinely
+ * contains a quote is left alone.
+ */
+export function configuredPassword(): string | undefined {
+  const raw = process.env.SITE_PASSWORD?.trim();
+  if (!raw) return undefined;
+  const unquoted =
+    (raw.startsWith('"') && raw.endsWith('"')) ||
+    (raw.startsWith("'") && raw.endsWith("'"))
+      ? raw.slice(1, -1).trim()
+      : raw;
+  return unquoted || undefined;
+}

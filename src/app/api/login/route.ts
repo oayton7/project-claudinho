@@ -1,4 +1,4 @@
-import { COOKIE_NAME, safeEqual, tokenFor } from "@/lib/gate";
+import { COOKIE_NAME, configuredPassword, safeEqual, tokenFor } from "@/lib/gate";
 
 /**
  * POST /api/login
@@ -10,7 +10,7 @@ import { COOKIE_NAME, safeEqual, tokenFor } from "@/lib/gate";
 export async function POST(request: Request) {
   // Trimmed: an env var pasted into a dashboard very often carries a
   // trailing space or newline, and nobody means their password to include one.
-  const configured = process.env.SITE_PASSWORD?.trim();
+  const configured = configuredPassword();
   if (!configured) {
     return Response.json({ error: "No site password is set" }, { status: 503 });
   }

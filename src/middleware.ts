@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { COOKIE_NAME, safeEqual, tokenFor } from "@/lib/gate";
+import { COOKIE_NAME, configuredPassword, safeEqual, tokenFor } from "@/lib/gate";
 
 /**
  * Runs before every request that matches the config below. If the gate cookie
@@ -10,7 +10,7 @@ import { COOKIE_NAME, safeEqual, tokenFor } from "@/lib/gate";
  * one spends your API credit.
  */
 export async function middleware(request: NextRequest) {
-  const password = process.env.SITE_PASSWORD?.trim();
+  const password = configuredPassword();
 
   // No password configured means the gate is off. Deliberate: it keeps local
   // development frictionless, and an empty SITE_PASSWORD in production is a

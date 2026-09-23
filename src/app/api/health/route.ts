@@ -83,6 +83,10 @@ export async function GET() {
     },
     siteGate: (() => {
       const raw = process.env.SITE_PASSWORD;
+      const quoted =
+        !!raw &&
+        ((raw.trim().startsWith('"') && raw.trim().endsWith('"')) ||
+          (raw.trim().startsWith("'") && raw.trim().endsWith("'")));
       if (!raw) {
         return {
           configured: false,
@@ -96,8 +100,10 @@ export async function GET() {
         configured: true,
         length: raw.length,
         hasSurroundingWhitespace: raw !== raw.trim(),
-        note:
-          raw !== raw.trim()
+        hasSurroundingQuotes: quoted,
+        note: quoted
+          ? "The stored password has quote marks around it. Those count as part of the password, which is almost certainly why it will not accept what you type. They are now stripped on read, so this should work either way."
+          : raw !== raw.trim()
             ? "The stored password has a space or newline around it. That is almost certainly why it will not accept what you type."
             : "Gate is on.",
       };
