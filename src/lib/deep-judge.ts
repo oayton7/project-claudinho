@@ -19,7 +19,7 @@ import {
   candidateToProductInput,
 } from "@/lib/judge";
 import { MODEL, guarded, priceIt } from "@/lib/claude";
-import { getCandidate, saveDeepJudgement, getReviews } from "@/lib/db";
+import { getCandidate, saveDeepJudgement, getReviews, recordApiSpend } from "@/lib/db";
 import type { Judgement } from "@/lib/judge";
 
 export type DeepJudgement = {
@@ -93,6 +93,11 @@ export async function judgeOne(asin: string): Promise<DeepJudgement> {
   }
 
   const cost = priceIt(result.usage);
+
+  // Record what it actually cost. The guard runs before the call and cannot
+  // know the price, which is why spend has read zero on /api/health while the
+  // call count climbed.
+  await recordApiSpend("judge", cost.costPence);
 
   // Deliberately not swallowed. This used to be a .catch(() => {}), which
   // meant a rejected write left you having paid ten pence, stored nothing, and

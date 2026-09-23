@@ -33,6 +33,7 @@ import {
   describeError,
   guardedTriage,
   priceTriage,
+  RateLimited,
 } from "@/lib/claude";
 import {
   TRIAGE_SYSTEM_PROMPT,
@@ -519,9 +520,20 @@ async function doOneSlice(request: Request, runId?: string) {
     // minute. Marking it failed would have an unattended pipeline kill itself
     // the first time it got ahead of the refill rate, which is the normal
     // state of a pipeline working hard.
+    // The same reasoning covers the hourly spend guards. They exist to stop a
+    // bug emptying the API credit, they clear at the top of the hour, and a
+    // run that hits one is fine.
+    //
+    // This was matched on the words 429 and token only, so the guard's own
+    // message — "Hit the local guard of 40 calls per hour" — contained neither
+    // and the run was marked failed. Permanently: the resurrection logic also
+    // looked for those two words. Three runs died that way and the campaign
+    // sat still for eight days while appearing to be running. The same class
+    // of bug as the Keepa 429, reintroduced a few feet away from the fix.
     const isRateLimit =
       error instanceof KeepaTokensExhausted ||
-      /429|token/i.test(message);
+      error instanceof RateLimited ||
+      /429|token|calls per hour|guard of/i.test(message);
 
     if (run) {
       await updateRun(run.id, {
@@ -529,7 +541,11 @@ async function doOneSlice(request: Request, runId?: string) {
         // rather than restarts. queued is the right resting place for a run
         // that had not started.
         status: isRateLimit ? (run.status === "queued" ? "queued" : run.status) : "failed",
-        stage_detail: isRateLimit ? "waiting for Keepa tokens" : run.stage_detail,
+        stage_detail: isRateLimit
+          ? /calls per hour|guard of/i.test(message)
+            ? "waiting for the hourly spend guard to clear"
+            : "waiting for Keepa tokens"
+          : run.stage_detail,
         error: message,
       }).catch(() => {});
     }

@@ -10,7 +10,7 @@ import {
   guardedTriage,
   priceTriage,
 } from "@/lib/claude";
-import { getReviews, saveReviews } from "@/lib/db";
+import { getReviews, saveReviews, recordApiSpend } from "@/lib/db";
 
 /**
  * POST /api/reviews  — analyse pasted reviews for one ASIN
@@ -138,6 +138,7 @@ export async function POST(request: Request) {
 
     const analysis = parsed.data;
     const cost = priceTriage(result.usage);
+    await recordApiSpend("triage", cost.costPence);
 
     // Never lose a paid result to a storage problem. The analysis is the thing
     // Oscar just paid for; the table not existing yet is a setup issue, and

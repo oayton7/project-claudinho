@@ -815,7 +815,12 @@ export async function nextRunnable(): Promise<RunRow | null> {
     .select("*")
     .eq("user_id", currentUserId())
     .eq("status", "failed")
-    .or("error.ilike.%429%,error.ilike.%token%")
+    // Anything that clears on its own. The hourly guards belong here for the
+    // same reason the Keepa bucket does: they are a pause, and a run stranded
+    // on one will never be picked up again without this.
+    .or(
+      "error.ilike.%429%,error.ilike.%token%,error.ilike.%calls per hour%,error.ilike.%guard of%",
+    )
     .order("updated_at", { ascending: true })
     .limit(1);
   if (stalledError) return null;
@@ -825,7 +830,7 @@ export async function nextRunnable(): Promise<RunRow | null> {
 
   await updateRun(recoverable.id, {
     status: recoverable.category_cursor > 0 ? "sweeping" : "queued",
-    stage_detail: "resumed after running out of Keepa tokens",
+    stage_detail: "resumed after a temporary limit cleared",
     error: null,
   });
 
@@ -1180,6 +1185,26 @@ export async function checkApiBudget(
     };
   } catch {
     return { allowed: true, callsThisHour: 0 };
+  }
+}
+
+/**
+ * Adds cost to the current hour without counting another call.
+ *
+ * The guard runs before the request, when the price is not yet known, so it
+ * always recorded zero pence. That is why /api/health has reported calls
+ * honestly and spend as £0.00 for weeks, and why the only way to find out what
+ * this had actually cost was to open the Anthropic console.
+ */
+export async function recordApiSpend(
+  kind: "judge" | "triage" | "keepa",
+  pence: number,
+): Promise<void> {
+  if (!Number.isFinite(pence) || pence <= 0) return;
+  try {
+    await getDb().rpc("record_api_spend", { p_kind: kind, p_pence: pence });
+  } catch {
+    // Never let bookkeeping fail the work it is describing.
   }
 }
 
