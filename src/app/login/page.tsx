@@ -1,9 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function LoginPage() {
   const [password, setPassword] = useState("");
+  // Set when another page redirected here, which is the case worth explaining.
+  const [cameFromSomewhere, setCameFromSomewhere] = useState(false);
+
+  useEffect(() => {
+    const next = new URLSearchParams(window.location.search).get("next");
+    setCameFromSomewhere(Boolean(next));
+  }, []);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 
@@ -41,12 +48,29 @@ export default function LoginPage() {
         <p className="font-mono text-xs uppercase tracking-widest text-zinc-500">
           Project Claudinho
         </p>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight text-black dark:text-zinc-50">
+        <h1 className="display mt-2 text-4xl leading-none text-black dark:text-zinc-50">
           Sign in
         </h1>
-        <p className="mt-2 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+        <p className="mt-3 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
           Your product research and rubric live behind here.
         </p>
+
+        {/*
+          Say why you are here.
+
+          Being bounced to a password box with no explanation reads as the site
+          being broken — "I cannot click anything" — rather than as a session
+          that ended. It ends for two reasons and both are worth naming,
+          because one of them is the thing you just did: the cookie holds a
+          hash of the password, so changing the password signs everyone out.
+        */}
+        {cameFromSomewhere && (
+          <p className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm leading-6 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+            You were signed out, so that page sent you here. It happens after
+            thirty days, or straight away if the site password was changed —
+            the sign-in cookie is tied to it.
+          </p>
+        )}
 
         <form onSubmit={submit} className="mt-6 space-y-3">
           <input
