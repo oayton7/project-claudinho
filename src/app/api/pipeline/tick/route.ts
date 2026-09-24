@@ -583,6 +583,7 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as { runId?: string };
   const started = Date.now();
   const slices: unknown[] = [];
+  let consecutiveWaits = 0;
 
   for (let i = 0; i < 60; i += 1) {
     if (Date.now() - started > TIME_BUDGET_MS) {
@@ -597,9 +598,24 @@ export async function POST(request: Request) {
     const result = (await response.json()) as Record<string, unknown>;
     slices.push(result);
 
-    // A rate limit ends this invocation rather than spinning against it. The
-    // next one, minutes later, finds tokens waiting.
-    if (result.idle || result.error || result.waiting) break;
+    if (result.idle || result.error) break;
+
+    // A run waiting on a limit steps aside rather than ending the invocation.
+    //
+    // This used to break outright, which meant one scan short of Keepa tokens
+    // stopped the whole four minute budget — including judge runs that needed
+    // no Keepa at all and could have proceeded. With several runs outstanding
+    // the queue could sit still indefinitely while reporting itself healthy,
+    // because the one run at the front was always waiting.
+    //
+    // Claiming a run bumps its updated_at, so the next slice naturally picks a
+    // different one. The counter stops it spinning when everything is waiting.
+    if (result.waiting) {
+      consecutiveWaits += 1;
+      if (consecutiveWaits >= 8) break;
+      continue;
+    }
+    consecutiveWaits = 0;
 
     // One run reaching the end is not a reason to stop working. When no
     // particular run was asked for, the next slice claims whatever is oldest,
