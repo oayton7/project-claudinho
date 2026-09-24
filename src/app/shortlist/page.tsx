@@ -3,6 +3,58 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import type { ScoutCandidateRow } from "@/lib/stages";
+import { viability } from "@/lib/viability";
+
+/**
+ * The viability bands, which are the only colour on the page.
+ *
+ * Viability answers how hard a product would be given it is already good, so
+ * the tint says where to spend attention before a word is read. A product with
+ * no paid review has no score, and stays white rather than being guessed at —
+ * white means "not assessed", not a fourth band.
+ */
+const BANDS = {
+  green: { bg: "#E9F4EC", line: "#BEDCC7", ink: "#2F6B4F", label: "Worth a deeper look" },
+  orange: { bg: "#FCEFDF", line: "#EBD2AE", ink: "#8A5A16", label: "50 to 60" },
+  red: { bg: "#FBEAE7", line: "#EFCCC5", ink: "#8B3128", label: "Below 50" },
+  none: { bg: "transparent", line: "#E4E0D8", ink: "#6A645A", label: "Not assessed" },
+} as const;
+
+function bandFor(score: number | null) {
+  if (score === null) return BANDS.none;
+  if (score >= 61) return BANDS.green;
+  if (score >= 50) return BANDS.orange;
+  return BANDS.red;
+}
+
+/**
+ * Viability for one row, or null when nothing has paid for an opinion yet.
+ *
+ * Runs the same pure function the rest of the tool uses rather than a second
+ * copy of the rules, so a change to the weights shows here without anyone
+ * remembering to update the page.
+ */
+function viabilityFor(r: ScoutCandidateRow): number | null {
+  if (!r.judge_verdict) return null;
+  const j = r.judge_json as { improvability?: Record<string, { score?: number }> } | null;
+  const imp = j?.improvability;
+  const weighted =
+    imp && imp.marketing && imp.branding && imp.product
+      ? ((imp.marketing.score ?? 5) + (imp.branding.score ?? 5)) / 2 * 0.6 +
+        (imp.product.score ?? 5) * 0.4
+      : null;
+  return viability({
+    asin: r.asin,
+    title: r.title,
+    category: r.category,
+    price: r.price,
+    maxLandedCost: r.max_landed_cost,
+    unhappyBuyers: r.unhappy_buyers,
+    weightGrams: r.weight_grams,
+    improvability: weighted ?? r.triage_improvability ?? null,
+    hasReviews: Boolean(r.judge_missing !== null && !String(r.judge_missing).includes("reviews")),
+  }).score;
+}
 
 const VERDICT_STYLE: Record<string, string> = {
   TEST: "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200",
@@ -14,9 +66,9 @@ export default function ShortlistPage() {
   const [rows, setRows] = useState<ScoutCandidateRow[]>([]);
   const [counts, setCounts] = useState({ test: 0, park: 0, killed: 0 });
   const [showKilled, setShowKilled] = useState(false);
-  // The seven that survived the expensive opinion are the actual shortlist.
-  // Everything else is a candidate for one.
-  const [survivorsOnly, setSurvivorsOnly] = useState(false);
+  // Three groups rather than a pile: what survived a paid review, what has
+  // only had the cheap check, and what is kept to answer "why did you pass".
+  const [tab, setTab] = useState<"chase" | "waiting" | "parked">("chase");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [deepening, setDeepening] = useState<string | null>(null);
@@ -202,7 +254,7 @@ export default function ShortlistPage() {
         >
           ← Project Claudinho
         </Link>
-        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-black dark:text-zinc-50">
+        <h1 className="display mt-3 text-3xl font-semibold tracking-tight text-black dark:text-zinc-50">
           Shortlist
         </h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">
@@ -238,20 +290,6 @@ export default function ShortlistPage() {
           >
             Export CSV
           </button>
-          <button
-            onClick={() => setSurvivorsOnly((v) => !v)}
-            className={`rounded px-3 py-1 text-xs font-medium ${
-              survivorsOnly
-                ? "bg-emerald-600 text-white"
-                : "border border-zinc-400 text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
-            }`}
-          >
-            {survivorsOnly ? "Showing" : "Show"} only what survived the deep
-            look
-            {survivorsOnly
-              ? ""
-              : ` (${rows.filter((r) => r.judge_verdict === "TEST").length})`}
-          </button>
           <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
             <input
               type="checkbox"
@@ -260,6 +298,44 @@ export default function ShortlistPage() {
             />
             Show the killed ones too
           </label>
+        </div>
+
+        <div className="mt-5 flex flex-wrap items-center gap-2">
+          {(
+            [
+              ["chase", "Worth chasing", rows.filter((r) => r.judge_verdict === "TEST").length],
+              ["waiting", "Not looked at properly", rows.filter((r) => !r.judge_verdict && r.triage_verdict === "TEST").length],
+              ["parked", "Parked", rows.filter((r) => (r.judge_verdict ?? r.triage_verdict) !== "TEST").length],
+            ] as const
+          ).map(([key, label, n]) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`rounded-full px-4 py-2 text-sm font-medium ${
+                tab === key
+                  ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                  : "border border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
+              }`}
+            >
+              {label} <span className="opacity-60">{n}</span>
+            </button>
+          ))}
+
+          {/* The key, so the tint never has to be remembered. */}
+          <div className="ml-auto flex flex-wrap items-center gap-4">
+            {[BANDS.green, BANDS.orange, BANDS.red].map((b) => (
+              <span
+                key={b.label}
+                className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400"
+              >
+                <span
+                  className="inline-block h-3.5 w-3.5 rounded"
+                  style={{ background: b.bg, border: `1px solid ${b.line}` }}
+                />
+                {b.label}
+              </span>
+            ))}
+          </div>
         </div>
 
         {error && (
@@ -290,13 +366,23 @@ export default function ShortlistPage() {
           </div>
         ) : (
           <ul className="mt-6 space-y-4">
-            {(survivorsOnly
-              ? rows.filter((r) => r.judge_verdict === "TEST")
-              : rows
-            ).map((r) => (
+            {rows
+              .filter((r) => {
+                const best = r.judge_verdict ?? r.triage_verdict;
+                if (tab === "chase") return r.judge_verdict === "TEST";
+                if (tab === "waiting") return !r.judge_verdict && r.triage_verdict === "TEST";
+                return best !== "TEST";
+              })
+              .map((r) => {
+                const band = bandFor(viabilityFor(r));
+                return (
               <li
                 key={r.asin}
-                className="rounded border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950"
+                className="rounded-2xl p-5"
+                style={{
+                  background: band.bg === "transparent" ? undefined : band.bg,
+                  border: `1px solid ${band.line}`,
+                }}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
@@ -335,13 +421,32 @@ export default function ShortlistPage() {
                       {r.brand ? ` · ${r.brand}` : ""}
                     </span>
                   </div>
+                  {/*
+                    Viability, not the arithmetic score. The score was computed
+                    before anyone looked at the product properly, so it ranked
+                    an unexamined row alongside one that had survived a paid
+                    review. This answers how hard it would be, given it is good.
+                  */}
                   <div className="text-right">
-                    <span className="block text-2xl font-semibold tabular-nums text-black dark:text-zinc-100">
-                      {r.score ?? "—"}
+                    <span
+                      className="display block text-4xl tabular-nums"
+                      style={{ color: band.ink }}
+                      title={
+                        viabilityFor(r) === null
+                          ? "No viability score until a paid review has been done."
+                          : "How hard this would be, given it is good: room to improve, whether you can fund it, and what importing it drags along."
+                      }
+                    >
+                      {viabilityFor(r) ?? "—"}
                     </span>
-                    <span className="block text-[10px] text-zinc-500">
-                      score
+                    <span className="block text-[10px] uppercase tracking-wide text-zinc-500">
+                      viability
                     </span>
+                    {r.score !== null && (
+                      <span className="mt-1 block text-[10px] text-zinc-400">
+                        score {r.score}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -622,7 +727,8 @@ export default function ShortlistPage() {
                   </Link>
                 </div>
               </li>
-            ))}
+                );
+              })}
           </ul>
         )}
       </main>
