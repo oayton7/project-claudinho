@@ -96,6 +96,14 @@ export type ScoutCandidateRow = {
   video_count: number | null;
   parent_asin: string | null;
   judge_verdict: string | null;
+  /**
+   * Whether buyer reviews were actually collected for this product.
+   *
+   * Filled in when the shortlist is read rather than stored as a column.
+   * Viability weights it at 15 points, and inferring it from what the Judge
+   * reported missing marked every row unread.
+   */
+  has_reviews?: boolean;
   judge_summary: string | null;
   judge_json: {
     targetBuyer?: { who?: string; score?: number; reasoning?: string };
