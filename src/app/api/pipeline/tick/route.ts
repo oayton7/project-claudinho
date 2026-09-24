@@ -530,6 +530,25 @@ async function doOneSlice(request: Request, runId?: string) {
     // looked for those two words. Three runs died that way and the campaign
     // sat still for eight days while appearing to be running. The same class
     // of bug as the Keepa 429, reintroduced a few feet away from the fix.
+    // Out of credit is neither temporary nor a bug. Waiting will not fix it
+    // and retrying burns the queue against a wall, so the run stops and says
+    // exactly what is wrong.
+    //
+    // This hid for eight days behind the hourly guard: every judge call failed
+    // for want of credit, each failure was counted as a call, the count tripped
+    // the guard, and the guard's message was the one that got stored. The
+    // pipeline reported a throttle while the account was empty.
+    const isOutOfCredit = /credit balance is too low|purchase credits/i.test(message);
+    if (isOutOfCredit && run) {
+      await updateRun(run.id, {
+        status: "halted",
+        stage_detail: "stopped: the Anthropic account is out of credit",
+        error:
+          "The Anthropic account has no credit left, so nothing can be judged. Add credit at console.anthropic.com under Plans and Billing, then press Resume. Nothing already paid for is lost.",
+      }).catch(() => {});
+      return Response.json({ error: message, outOfCredit: true }, { status: 402 });
+    }
+
     const isRateLimit =
       error instanceof KeepaTokensExhausted ||
       error instanceof RateLimited ||

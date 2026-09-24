@@ -1054,12 +1054,21 @@ export async function runHealth(): Promise<Record<string, unknown>> {
       minutesQuiet: minutesSince(r.last_tick_at ?? r.updated_at),
     })),
     failed: runs.filter((r) => r.status === "failed").length,
+    // Surfaced on its own because it is the one failure no amount of waiting
+    // or resuming fixes, and it spent eight days disguised as a rate limit.
+    outOfCredit: runs.some((r) =>
+      /credit balance is too low|no credit left|purchase credits/i.test(r.error ?? ""),
+    ),
     qualified: await verdictCounts(),
     // Keepa's own count, from whichever run saw it last. Nothing here spends a
     // token to ask.
     keepaTokensLeft:
       runs.find((r) => r.keepa_tokens_left !== null)?.keepa_tokens_left ?? null,
-    note: stalled
+    note: runs.some((r) =>
+      /credit balance is too low|no credit left|purchase credits/i.test(r.error ?? ""),
+    )
+      ? "The Anthropic account is out of credit, so nothing can be judged. Add credit at console.anthropic.com under Plans and Billing, then press Resume on /runs."
+      : stalled
       ? `Nothing has ticked in ${minutesSinceAnyTick} minutes with ${active.length} run(s) outstanding. The watchdog fires every ten, so it has missed two turns — check the schedule is still enabled on GitHub, then use Resume on /runs.`
       : active.length > 0
         ? `${active.length} run(s) outstanding and something is driving them. One watchdog turn works the queue for about four minutes, taking the oldest each slice, so they advance together rather than one at a time.`
