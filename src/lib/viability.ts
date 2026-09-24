@@ -72,7 +72,15 @@ export function viability(input: ViabilityInput): Viability {
     const orders = orderCostAtMoq(input.maxLandedCost, 3000);
     const fundable = orders.filter((o) => o.withinCap);
     cheapestFundable = fundable.length ? fundable[fundable.length - 1].units : null;
-    affordabilityPts = fundable.length ? clamp(fundable.length / orders.length) * 20 : 0;
+
+    // Scored on whether a real order fits, not on how many of four quantities
+    // happen to. The fraction version gave a perfectly fundable product five
+    // points out of twenty because only the 100-unit row fitted inside £3,000,
+    // which is not a fault — it is what a first order looks like at this
+    // capital. Every survivor came out under 60 and the top band was
+    // unreachable.
+    const largest = cheapestFundable ?? 0;
+    affordabilityPts = largest >= 300 ? 20 : largest >= 100 ? 15 : 0;
     if (cheapestFundable && cheapestFundable >= 500) {
       forIt.push(`fundable at ${cheapestFundable} units inside ${CAPITAL_CAP_PCT}% of capital`);
     } else if (!fundable.length) {
@@ -83,7 +91,9 @@ export function viability(input: ViabilityInput): Viability {
   // Demand, as a floor rather than the opportunity. Unhappy buyers is the
   // sharper signal than raw reviews: it is demand and dissatisfaction at once.
   const unhappy = input.unhappyBuyers ?? 0;
-  const demandPts = clamp(unhappy / 1200) * 15;
+  // Six hundred unhappy buyers is already a large pool to win from at this
+  // capital. Twelve hundred made all but the biggest markets score near zero.
+  const demandPts = clamp(unhappy / 600) * 15;
   if (unhappy >= 500) forIt.push(`${unhappy.toLocaleString()} unhappy buyers to win over`);
   if (unhappy > 0 && unhappy < 100) againstIt.push("thin evidence of dissatisfaction");
 
@@ -103,7 +113,10 @@ export function viability(input: ViabilityInput): Viability {
 
   // Size, because freight and FBA tiers are decided by the box.
   const grams = input.weightGrams ?? 0;
-  const weightPts = grams === 0 ? 2 : grams <= 500 ? 5 : grams <= 900 ? 3 : 0;
+  // Unknown scores neutral rather than poor. Keepa often has no weight, and
+  // docking a product for what the data does not say punishes the gap rather
+  // than the product.
+  const weightPts = grams === 0 ? 3 : grams <= 500 ? 5 : grams <= 900 ? 4 : 0;
   if (grams > 900) againstIt.push(`${grams}g, over the small-and-light guideline`);
 
   const score = Math.round(
