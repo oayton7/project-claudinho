@@ -1229,7 +1229,9 @@ export async function recordApiSpend(
 /** What has been spent this hour and today, for /api/health. */
 export async function apiUsageSummary(): Promise<Record<string, unknown>> {
   const db = getDb();
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  // Thirty days rather than one. "Where has it all gone" is not answerable
+  // from a single day, and that was the only view available.
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const { data, error } = await db
     .from("api_usage")
     .select("kind, hour, calls, pence")
@@ -1238,21 +1240,52 @@ export async function apiUsageSummary(): Promise<Record<string, unknown>> {
 
   if (error) return { error: error.message };
 
-  const rows = (data ?? []) as { kind: string; calls: number; pence: number }[];
-  const byKind: Record<string, { calls: number; pence: number }> = {};
-  for (const r of rows) {
-    const held = byKind[r.kind] ?? { calls: 0, pence: 0 };
+  const rows = (data ?? []) as {
+    kind: string;
+    hour: string;
+    calls: number;
+    pence: number;
+  }[];
+
+  const add = (
+    into: Record<string, { calls: number; pence: number }>,
+    key: string,
+    r: { calls: number; pence: number },
+  ) => {
+    const held = into[key] ?? { calls: 0, pence: 0 };
     held.calls += r.calls;
     held.pence += Number(r.pence);
-    byKind[r.kind] = held;
+    into[key] = held;
+  };
+
+  const byKind: Record<string, { calls: number; pence: number }> = {};
+  const byDay: Record<string, { calls: number; pence: number }> = {};
+  const last24: Record<string, { calls: number; pence: number }> = {};
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+
+  for (const r of rows) {
+    add(byKind, r.kind, r);
+    add(byDay, r.hour.slice(0, 10), r);
+    if (new Date(r.hour).getTime() >= dayAgo) add(last24, r.kind, r);
   }
 
+  const money = (p: number) => Math.round(p * 100) / 100;
+  const shape = (o: Record<string, { calls: number; pence: number }>) =>
+    Object.fromEntries(
+      Object.entries(o).map(([k, v]) => [k, { calls: v.calls, pence: money(v.pence) }]),
+    );
+
   return {
-    last24h: Object.fromEntries(
-      Object.entries(byKind).map(([k, v]) => [
-        k,
-        { calls: v.calls, pence: Math.round(v.pence * 100) / 100 },
-      ]),
+    last24h: shape(last24),
+    last30dByKind: shape(byKind),
+    // Newest first, so a spike is obvious at a glance.
+    last30dByDay: Object.fromEntries(
+      Object.entries(byDay)
+        .sort(([a], [b]) => b.localeCompare(a))
+        .slice(0, 30)
+        .map(([d, v]) => [d, { calls: v.calls, pence: money(v.pence) }]),
     ),
+    caveat:
+      "Counts this tool's own calls only, and a failed call was counted as a call until 24 September. Pence was not recorded before then either, so older rows read zero. The Anthropic console is the authority.",
   };
 }
