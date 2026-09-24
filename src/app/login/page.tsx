@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 export default function LoginPage() {
   const [password, setPassword] = useState("");
   // Set when another page redirected here, which is the case worth explaining.
-  const [cameFromSomewhere, setCameFromSomewhere] = useState(false);
-
-  useEffect(() => {
-    const next = new URLSearchParams(window.location.search).get("next");
-    setCameFromSomewhere(Boolean(next));
-  }, []);
+  //
+  // Read straight into the initial state rather than written from an effect,
+  // which would be a state write on first render for every visitor whether or
+  // not they were redirected. Guarded for the server, where there is no URL.
+  const [cameFromSomewhere] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return Boolean(new URLSearchParams(window.location.search).get("next"));
+  });
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 
