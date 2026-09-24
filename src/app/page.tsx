@@ -1,131 +1,249 @@
-import Link from "next/link";
+"use client";
 
-const phases = [
-  { n: 0, name: "Setup", detail: "Node, git, project scaffold", done: true },
-  { n: 1, name: "Live on the internet", detail: "This page, on Vercel", done: true },
-  { n: 2, name: "Margin engine", detail: "Contribution, break-even, both VAT states", done: true },
-  { n: 3, name: "Claude scoring", detail: "Improvability and pre-mortem", done: true },
-  { n: 4, name: "Database", detail: "Save products, pipeline board", done: true },
-  { n: 5, name: "Logins", detail: "Supabase auth, row-level security", done: false },
-  { n: 6, name: "The Scout", detail: "Keepa search, an unattended sweep, US growth check", done: true },
-];
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import type { ScoutCandidateRow } from "@/lib/stages";
+import { viability } from "@/lib/viability";
+
+/**
+ * The front door.
+ *
+ * It was a build-progress checklist with eleven buttons under it, which was
+ * right while the thing was being built and wrong the moment it started being
+ * used: the first screen said how the tool was made rather than what it had
+ * found. Then it was counts and two buttons, which was tidier and still said
+ * nothing.
+ *
+ * So it shows the work. The three products the tool currently believes in are
+ * on the page, with the number that ranks them and the most you could pay for
+ * one, because that is the answer to the only question worth asking on
+ * opening it.
+ */
+
+const BANDS = {
+  green: { bg: "#E9F4EC", line: "#BEDCC7", ink: "#2F6B4F" },
+  orange: { bg: "#FCEFDF", line: "#EBD2AE", ink: "#8A5A16" },
+  red: { bg: "#FBEAE7", line: "#EFCCC5", ink: "#8B3128" },
+  none: { bg: "transparent", line: "#E4E0D8", ink: "#6A645A" },
+} as const;
+
+function bandFor(score: number | null) {
+  if (score === null) return BANDS.none;
+  if (score >= 61) return BANDS.green;
+  if (score >= 50) return BANDS.orange;
+  return BANDS.red;
+}
+
+function scoreOf(r: ScoutCandidateRow): number | null {
+  if (!r.judge_verdict) return null;
+  const imp = (r.judge_json as { improvability?: Record<string, { score?: number }> } | null)
+    ?.improvability;
+  const weighted =
+    imp?.marketing && imp?.branding && imp?.product
+      ? (((imp.marketing.score ?? 5) + (imp.branding.score ?? 5)) / 2) * 0.6 +
+        (imp.product.score ?? 5) * 0.4
+      : null;
+  return viability({
+    asin: r.asin,
+    title: r.title,
+    category: r.category,
+    price: r.price,
+    maxLandedCost: r.max_landed_cost,
+    unhappyBuyers: r.unhappy_buyers,
+    weightGrams: r.weight_grams,
+    improvability: weighted ?? r.triage_improvability ?? null,
+    hasReviews: Boolean(r.has_reviews),
+  }).score;
+}
+
+const money = (n: number | null) =>
+  n === null || n === undefined ? "—" : `£${Number(n).toFixed(2)}`;
 
 export default function Home() {
-  return (
-    <div className="flex flex-1 flex-col items-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="w-full max-w-2xl flex-1 px-6 py-20 sm:px-10">
-        <p className="font-mono text-xs uppercase tracking-widest text-zinc-500">
-          Project Claudinho
-        </p>
-        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-black dark:text-zinc-50">
-          Amazon UK Product Scout &amp; Qualifier
-        </h1>
-        <p className="mt-4 max-w-lg text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-          Finds candidate products, qualifies them against a hard rubric, and
-          argues with you before you spend money.
-        </p>
+  const [rows, setRows] = useState<ScoutCandidateRow[]>([]);
+  const [health, setHealth] = useState<Record<string, unknown> | null>(null);
+  const [loading, setLoading] = useState(true);
 
-        <h2 className="mt-14 text-sm font-semibold uppercase tracking-wide text-zinc-500">
-          Build progress
-        </h2>
-        <ol className="mt-4 divide-y divide-zinc-200 border-y border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-          {phases.map((phase) => (
-            <li key={phase.n} className="flex items-baseline gap-4 py-3">
-              <span
-                className={`w-6 shrink-0 font-mono text-sm ${
-                  phase.done ? "text-emerald-600" : "text-zinc-400"
-                }`}
-              >
-                {phase.done ? "✓" : phase.n}
-              </span>
-              <span className="flex-1">
-                <span
-                  className={`font-medium ${
-                    phase.done
-                      ? "text-zinc-500 line-through dark:text-zinc-500"
-                      : "text-black dark:text-zinc-100"
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const [s, h] = await Promise.all([
+        fetch("/api/shortlist").then((r) => r.json()).catch(() => ({})),
+        fetch("/api/health").then((r) => r.json()).catch(() => ({})),
+      ]);
+      if (!live) return;
+      setRows((s.rows ?? []) as ScoutCandidateRow[]);
+      setHealth((h.pipeline ?? null) as Record<string, unknown> | null);
+      setLoading(false);
+    })();
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const top = rows
+    .filter((r) => r.judge_verdict === "TEST")
+    .map((r) => ({ row: r, score: scoreOf(r) }))
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    .slice(0, 3);
+
+  const q = (health?.qualified ?? {}) as {
+    seen?: number;
+    judged?: Record<string, number>;
+  };
+  const judged = q.judged
+    ? (q.judged.test ?? 0) + (q.judged.park ?? 0) + (q.judged.kill ?? 0)
+    : null;
+
+  return (
+    <div className="flex flex-1 flex-col bg-white dark:bg-black">
+      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-16 sm:px-10">
+        <div className="mt-2 flex flex-wrap items-end justify-between gap-x-12 gap-y-8">
+          <div className="max-w-2xl">
+            <h1 className="display text-5xl leading-[1.02] text-black sm:text-7xl dark:text-zinc-50">
+              What is worth
+              <br />
+              your money
+            </h1>
+            <p className="mt-6 max-w-lg text-lg leading-8 text-zinc-600 dark:text-zinc-400">
+              Products with proven demand that are being sold badly, the most
+              you could pay for one, and an argument against it before you spend
+              anything.
+            </p>
+          </div>
+
+          <dl className="flex gap-10">
+            {[
+              ["Still standing", q.judged?.test ?? null],
+              ["Reviewed", judged],
+              ["Scanned", q.seen ?? null],
+            ].map(([label, value], i) => (
+              <div key={String(label)}>
+                <dd
+                  className={`display leading-none text-black dark:text-zinc-50 ${
+                    i === 0 ? "text-6xl" : "text-3xl text-zinc-500 dark:text-zinc-400"
                   }`}
                 >
-                  {phase.name}
-                </span>
-                <span className="ml-2 text-sm text-zinc-500">{phase.detail}</span>
-              </span>
-            </li>
-          ))}
-        </ol>
+                  {value ?? "—"}
+                </dd>
+                <dt className="mt-2 text-[11px] uppercase tracking-[0.1em] text-zinc-500">
+                  {label}
+                </dt>
+              </div>
+            ))}
+          </dl>
+        </div>
 
-        <div className="mt-10 flex flex-wrap gap-3">
-          <Link
-            href="/runs"
-            className="rounded bg-black px-5 py-2.5 text-sm font-medium text-white dark:bg-zinc-100 dark:text-black"
+        {Boolean(health?.outOfCredit) && (
+          <div
+            className="mt-10 flex flex-wrap items-center gap-4 rounded-2xl px-6 py-5"
+            style={{ background: BANDS.red.bg, border: `1px solid ${BANDS.red.line}` }}
           >
-            Runs →
-          </Link>
+            <p className="flex-1 text-sm leading-6" style={{ color: "#5A2A25" }}>
+              <strong className="font-semibold" style={{ color: BANDS.red.ink }}>
+                Nothing can run.
+              </strong>{" "}
+              The Anthropic account is out of credit, so no product can be
+              reviewed. Nothing already paid for is lost.
+            </p>
+            <Link
+              href="/runs"
+              className="rounded-full px-5 py-2.5 text-sm font-semibold text-white"
+              style={{ background: BANDS.red.ink }}
+            >
+              See the queue
+            </Link>
+          </div>
+        )}
+
+        <section className="mt-16">
+          <div className="flex items-baseline justify-between gap-6">
+            <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">
+              Worth your attention
+            </h2>
+            <Link href="/shortlist" className="text-sm text-zinc-600 underline dark:text-zinc-400">
+              All of them →
+            </Link>
+          </div>
+
+          {loading ? (
+            <p className="mt-6 text-sm text-zinc-500">Loading…</p>
+          ) : top.length === 0 ? (
+            <div className="mt-5 rounded-2xl border border-dashed border-zinc-300 p-10 text-center dark:border-zinc-700">
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                Nothing has survived a paid review yet.
+              </p>
+              <Link href="/runs" className="mt-2 inline-block text-sm underline">
+                Start a run →
+              </Link>
+            </div>
+          ) : (
+            <ul className="mt-5 grid gap-4 sm:grid-cols-3">
+              {top.map(({ row, score }) => {
+                const band = bandFor(score);
+                return (
+                  <li
+                    key={row.asin}
+                    className="flex flex-col rounded-2xl p-6"
+                    style={{
+                      background: band.bg === "transparent" ? undefined : band.bg,
+                      border: `1px solid ${band.line}`,
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <span
+                        className="rounded-full bg-white/80 px-3 py-1 text-[11px] font-semibold"
+                        style={{ color: band.ink }}
+                      >
+                        {row.judge_verdict}
+                      </span>
+                      <span className="display text-4xl leading-none" style={{ color: band.ink }}>
+                        {score ?? "—"}
+                      </span>
+                    </div>
+
+                    <Link
+                      href="/shortlist"
+                      className="display mt-4 text-xl leading-snug text-black dark:text-zinc-100"
+                    >
+                      {row.title?.split(/[,|(]/)[0].slice(0, 62) ?? row.asin}
+                    </Link>
+
+                    <p className="mt-2 flex-1 text-sm leading-6 text-zinc-700 dark:text-zinc-300">
+                      {(row.judge_summary ?? row.triage_because ?? "").slice(0, 120)}
+                      {(row.judge_summary ?? row.triage_because ?? "").length > 120 ? "…" : ""}
+                    </p>
+
+                    <div className="mt-5 border-t pt-4" style={{ borderColor: band.line }}>
+                      <div className="text-[11px] uppercase tracking-[0.08em] text-zinc-500">
+                        You can pay up to
+                      </div>
+                      <div className="mt-1 text-2xl font-semibold text-black dark:text-zinc-100">
+                        {money(row.max_landed_cost)}
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
+        <div className="mt-12 flex flex-wrap items-center gap-3">
           <Link
             href="/shortlist"
-            className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
+            className="rounded-full bg-black px-8 py-4 text-base font-semibold text-white dark:bg-zinc-100 dark:text-black"
           >
-            Shortlist →
+            Open the shortlist
           </Link>
           <Link
-            href="/playbook"
-            className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
+            href="/runs"
+            className="rounded-full border border-zinc-300 px-8 py-4 text-base font-medium text-zinc-800 dark:border-zinc-700 dark:text-zinc-200"
           >
-            Playbook →
-          </Link>
-          <Link
-            href="/sweep"
-            className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
-          >
-            Sweep →
-          </Link>
-          <Link
-            href="/scout"
-            className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
-          >
-            Scout →
-          </Link>
-          <Link
-            href="/margin"
-            className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
-          >
-            Margin engine →
-          </Link>
-          <Link
-            href="/judge"
-            className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
-          >
-            The Judge →
-          </Link>
-          <Link
-            href="/products"
-            className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
-          >
-            Products →
-          </Link>
-          <Link
-            href="/reviews"
-            className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
-          >
-            Reviews →
-          </Link>
-          <Link
-            href="/triage"
-            className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
-          >
-            Triage check →
-          </Link>
-          <Link
-            href="/keepa"
-            className="rounded border border-zinc-400 px-5 py-2.5 text-sm font-medium text-zinc-800 dark:border-zinc-600 dark:text-zinc-200"
-          >
-            Keepa check →
+            What it is doing
           </Link>
         </div>
 
-        <p className="mt-6 text-sm text-zinc-500">
-          Next up: reading three-star reviews into the Judge, then logins.
-        </p>
       </main>
     </div>
   );
