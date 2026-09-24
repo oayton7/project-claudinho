@@ -857,6 +857,15 @@ export async function updateRun(id: string, patch: Partial<RunRow>) {
  * unfinished stage means a resume never re-pays for work already committed.
  */
 function stageToResume(run: RunRow): RunRow["status"] {
+  // A judge-only run has no categories and no triage queue, so the cursor
+  // logic below reasonably concluded "start from the beginning" and sent it to
+  // queued — where it tried to find categories through Keepa and waited for
+  // tokens forever. It was never going to find anything, because finding is
+  // not what it is for.
+  if (run.params?.stage === "judging" || run.params?.judge === true) {
+    return "judging";
+  }
+
   if (run.triage_queue?.length && run.triage_cursor < run.triage_queue.length) {
     return "triaging";
   }
