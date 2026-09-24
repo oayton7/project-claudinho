@@ -216,6 +216,8 @@ export type ScoutCandidateRow = {
   judge_pence: number | null;
   judge_missing: string | null;
   judge_json: Record<string, unknown> | null;
+  /** Filled in on read, not a column: were buyer reviews actually collected. */
+  has_reviews?: boolean;
   triage_because: string | null;
   triage_improvability: number | null;
   triage_main_risk: string | null;
@@ -552,6 +554,28 @@ export async function listShortlist(
   // piles mean very different things. The expensive opinion overrules the
   // cheap one wherever it exists, and among equals a confirmed TEST outranks
   // an unconfirmed one.
+  // Whether buyer reviews were actually read, from the reviews table rather
+  // than inferred from what the Judge said was missing.
+  //
+  // Viability weights this at 15 points, and inferring it left every row
+  // looking as if no reviews existed: the seven products that had survived a
+  // paid review all scored in the red band, which is the opposite of what the
+  // band is for.
+  const asins = [...byParent.values()].map((r) => r.asin);
+  const withReviews = new Set<string>();
+  if (asins.length > 0) {
+    const { data: reviewed } = await db
+      .from("reviews")
+      .select("asin")
+      .eq("user_id", currentUserId())
+      .in("asin", asins);
+    for (const r of reviewed ?? []) withReviews.add((r as { asin: string }).asin);
+  }
+  for (const row of byParent.values()) {
+    (row as ScoutCandidateRow & { has_reviews: boolean }).has_reviews =
+      withReviews.has(row.asin);
+  }
+
   const rank = { TEST: 0, PARK: 1, KILL: 2 } as const;
   const verdictOf = (r: ScoutCandidateRow) =>
     (r.judge_verdict ?? r.triage_verdict ?? "KILL") as "TEST" | "PARK" | "KILL";

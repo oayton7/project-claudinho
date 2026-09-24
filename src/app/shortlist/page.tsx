@@ -52,7 +52,10 @@ function viabilityFor(r: ScoutCandidateRow): number | null {
     unhappyBuyers: r.unhappy_buyers,
     weightGrams: r.weight_grams,
     improvability: weighted ?? r.triage_improvability ?? null,
-    hasReviews: Boolean(r.judge_missing !== null && !String(r.judge_missing).includes("reviews")),
+    // From the reviews table, set when the shortlist is read. Inferring it
+    // from what the Judge reported missing marked every row as unread and put
+    // all seven survivors in the red band.
+    hasReviews: Boolean(r.has_reviews),
   }).score;
 }
 
