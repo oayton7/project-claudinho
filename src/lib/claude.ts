@@ -17,7 +17,11 @@ const PRICE_PER_MTOK = { input: 5, output: 25 } as const;
  * A crude guard against a runaway loop emptying the prepaid balance. The
  * process restarting resets it, so it is a seatbelt rather than a budget.
  */
-const CALL_LIMIT_PER_HOUR = 40;
+// Raised from 40. At roughly 10p a call this is a ceiling of about £15 an
+// hour, which still stops a loop emptying the account overnight but does not
+// throttle a deliberate campaign to a crawl. Forty an hour meant 200 judgements
+// took five hours at best, and the run caps are the real budget control.
+const CALL_LIMIT_PER_HOUR = 150;
 const calls: number[] = [];
 
 export class RateLimited extends Error {
