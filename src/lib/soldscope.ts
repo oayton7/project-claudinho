@@ -99,6 +99,21 @@ async function call<T>(path: string, params: Record<string, string | number | un
   }
 }
 
+/**
+ * The raw body from one endpoint, for working out what it actually sends.
+ *
+ * Exists because reading an undocumented shape by guessing field names is how
+ * this project has repeatedly convinced itself something worked. One real
+ * call beats any amount of defensive coding.
+ */
+export async function raw(
+  path: string,
+  params: Record<string, string | number | undefined>,
+): Promise<unknown> {
+  const { data } = await call<unknown>(path, params);
+  return data;
+}
+
 /** Proves the token works, and costs nothing against the quota. */
 export async function checkToken(): Promise<{ ok: true; account: unknown }> {
   const { data } = await call<unknown>("/auth/check", {});
