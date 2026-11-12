@@ -198,22 +198,28 @@ export async function bsrHistory(
     marketplace,
     days,
   });
-  // Shape is not documented publicly, so read defensively and say so loudly
-  // if nothing recognisable comes back rather than returning an empty series
-  // that reads as "no seasonality".
-  const raw =
-    (data.history as unknown[]) ?? (data.data as unknown[]) ?? (data.points as unknown[]);
-  if (!Array.isArray(raw)) {
+  // The real shape, found by probing rather than guessing:
+  //   { data: { bsr: [{ value, time, category }], categories: [...] } }
+  // The first reader looked for history/points and rank/date and found none
+  // of them. Alternatives are kept only as a cushion against the API
+  // changing, never as a substitute for having checked.
+  const payload = (data.data ?? data) as Record<string, unknown>;
+  const series =
+    (payload.bsr as unknown[]) ??
+    (payload.history as unknown[]) ??
+    (payload.points as unknown[]);
+  if (!Array.isArray(series)) {
     throw new Error(
-      `SoldScope's bsr-history returned a shape this tool does not recognise for ${asin}. Keys: ${Object.keys(data).join(", ") || "none"}. The reader needs updating rather than the product being treated as having no history.`,
+      `SoldScope's bsr-history returned a shape this tool does not recognise for ${asin}. Top-level keys: ${Object.keys(data).join(", ") || "none"}; inner keys: ${Object.keys(payload).join(", ") || "none"}. The reader needs updating rather than the product being treated as having no history.`,
     );
   }
-  const points = raw
+  const points = series
     .map((p) => {
       const o = p as Record<string, unknown>;
-      const date = String(o.date ?? o.timestamp ?? o.t ?? "");
-      const rank = Number(o.rank ?? o.bsr ?? o.value ?? o.v);
-      return date && Number.isFinite(rank) ? { date, rank } : null;
+      // `time` and `value` are what it actually sends; the rest are a cushion.
+      const date = String(o.time ?? o.date ?? o.timestamp ?? "");
+      const rank = Number(o.value ?? o.rank ?? o.bsr);
+      return date && Number.isFinite(rank) && rank > 0 ? { date, rank } : null;
     })
     .filter((p): p is { date: string; rank: number } => p !== null);
 
