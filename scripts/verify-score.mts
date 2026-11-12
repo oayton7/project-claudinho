@@ -9,6 +9,7 @@ import { isMedia } from "../src/lib/exclusions.ts";
 import { complianceBurden } from "../src/lib/compliance.ts";
 import { viability, rankByViability } from "../src/lib/viability.ts";
 import { seasonalityFrom } from "../src/lib/soldscope.ts";
+import { readNiche } from "../src/lib/niche.ts";
 import {
   DEFAULT_WEIGHTS,
   autoVerdict,
@@ -466,3 +467,44 @@ assert(
 );
 assert("too little history reads as unknown, not as flat", seasonalityFrom(year([6]).slice(0, 8)) === null);
 assert("no history at all reads as unknown", seasonalityFrom([]) === null);
+
+// ── Reading a whole category ──────────────────────────────────────────────
+//
+// The question every other part of this tool skips: is there room on the
+// shelf at all. A beatable listing in a category one brand owns is not an
+// opening, it is a fight funded with three thousand pounds.
+const field = (
+  n: number,
+  opts: { brand?: (i: number) => string; rating?: number; reviews?: (i: number) => number; aplus?: boolean; video?: number } = {},
+) =>
+  Array.from({ length: n }, (_, i) => ({
+    asin: `B${String(i).padStart(9, "0")}`,
+    title: `Thing ${i}`,
+    brand: opts.brand ? opts.brand(i) : `Brand${i}`,
+    price: 20 + i,
+    rating: opts.rating ?? 4.1,
+    reviewCount: opts.reviews ? opts.reviews(i) : 100,
+    hasAplus: opts.aplus ?? false,
+    videoCount: opts.video ?? 0,
+    imageCount: 4,
+  }));
+
+const owned = readNiche(field(8, { brand: (i) => (i < 6 ? "Dominant" : `Other${i}`), rating: 4.7, aplus: true, video: 2 }));
+const openField = readNiche(field(8, { rating: 4.0 }));
+
+assert("a category one brand owns and serves well is crowded", owned?.room === "crowded", owned?.room);
+assert("and the leader's share is reported", Boolean(owned && owned.leaderShare >= 0.5), String(owned?.leaderShare));
+assert("a fragmented unhappy field is open", openField?.room === "open", openField?.room);
+assert(
+  "an open field says nobody owns the shelf",
+  Boolean(openField?.why.some((w) => w.includes("nobody owns"))),
+);
+assert(
+  "and says the field is not trying",
+  Boolean(openField?.why.some((w) => w.includes("not trying very hard"))),
+);
+assert("too few listings is unknown, not open", readNiche(field(3)) === null);
+assert(
+  "a well-executed fragmented field is contested, not open",
+  readNiche(field(8, { rating: 4.0, aplus: true, video: 2 }))?.room === "contested",
+);

@@ -797,3 +797,92 @@ export function candidateToProductInput(c: {
     missing,
   };
 }
+
+// ── The niche, rather than one product ──────────────────────────────────────
+
+export const NicheVerdictSchema = z.object({
+  /** Is there room for another product here at all. */
+  room: z.enum(["yes", "narrow", "no"]),
+  /** One sentence a person can repeat. */
+  verdict: z.string().max(400),
+  /** What the field is collectively failing to do. Most important first. */
+  gaps: z.array(z.string()).max(5),
+  /** The specific position to take, in the buyer's language, not marketing's. */
+  differentiation: z.object({
+    position: z.string().max(300),
+    product: z.string().max(400),
+    listing: z.string().max(400),
+    proof: z.string().max(300),
+  }),
+  /** Who in this field would fight back, and how. */
+  whoFightsBack: z.string().max(400),
+  /** What would make you wrong. */
+  ifThisIsWrong: z.string().max(400),
+});
+
+export type NicheVerdict = z.infer<typeof NicheVerdictSchema>;
+
+export const NICHE_SYSTEM_PROMPT = `You are assessing a whole category on Amazon UK for a first-time seller with roughly £3,000, stretchable to £5,000 for something that warrants it.
+
+Every other part of this tool asks whether one listing is beatable. You are asking the harder question: **is there room on this shelf at all, and if so, what exactly should he put on it.**
+
+## What makes room
+
+Room is not the same as a weak competitor. A beatable listing in a category one brand already owns is not an opening, it is a fight funded with three thousand pounds. Room exists when:
+
+- **Nobody owns it.** No single brand holds most of the reviews. A fragmented field of generic sellers is the ideal shape.
+- **Buyers are spending and complaining.** Money is already moving and the ratings say people are not happy about it.
+- **The field is not trying.** Thin photography, no A+ content, no video, keyword-stuffed titles. The cheapest opening there is.
+- **Nobody has claimed the obvious position.** If every listing says the same thing, the thing none of them says is available.
+
+Room does not exist when one brand holds the category and executes well, or when buyers are already satisfied. Say so plainly when that is what you see. "No" is a useful answer and saves him three thousand pounds.
+
+## Differentiation
+
+This is the part he actually needs, so do not generalise. "Better quality" and "improve the branding" are not answers.
+
+- **position** — the sentence on the listing that no competitor can honestly copy. It must follow from something real, not from adjectives.
+- **product** — the physical change that makes the position true. Name the change. If the position needs no product change, say that, and be honest that a position anybody can copy by editing their listing is worth very little.
+- **listing** — what the photographs and copy do differently, specifically. Not "better images".
+- **proof** — what makes a sceptical buyer believe it on a product page: a test shown on video, a guarantee no competitor offers, a number.
+
+The strongest answer is where product, position and proof are the same idea stated three ways. If they are three separate ideas, the position is marketing rather than a reason to buy.
+
+## Discipline
+
+- You are given arithmetic about the field and, where they exist, the actual complaints buyers wrote. Quote the complaints. Their words are worth more than your summary of them.
+- Do not invent competitors, numbers or complaints. Where the data is thin, say what you would need.
+- **whoFightsBack**: name who in this field would respond and how. A category where the leader can simply cut price is a different proposition from one where they cannot.
+- **ifThisIsWrong**: the thing that would make this assessment wrong. Not a hedge, a specific condition.`;
+
+export function buildNichePrompt(input: {
+  niche: string;
+  picture: Record<string, unknown>;
+  competitors: { title: string | null; brand: string | null; price: number | null; rating: number | null; reviewCount: number | null; weaknesses?: string[] }[];
+  complaints?: string | null;
+}): string {
+  const rows = input.competitors
+    .slice(0, 20)
+    .map(
+      (c) =>
+        `- ${c.brand ?? "no brand"} | £${c.price?.toFixed(2) ?? "?"} | ${c.rating ?? "?"}★ | ${c.reviewCount ?? "?"} reviews | ${c.title?.slice(0, 90) ?? ""}${c.weaknesses?.length ? ` | gaps: ${c.weaknesses.join(", ")}` : ""}`,
+    )
+    .join("\n");
+
+  return `Assess this category.
+
+**Category:** ${input.niche}
+
+**The arithmetic, worked from the listings:**
+${Object.entries(input.picture)
+  .filter(([k]) => k !== "why")
+  .map(([k, v]) => `- ${k}: ${Array.isArray(v) ? v.join("; ") : String(v)}`)
+  .join("\n")}
+
+${Array.isArray(input.picture.why) && input.picture.why.length ? `**What that adds up to:**\n${(input.picture.why as string[]).map((w) => `- ${w}`).join("\n")}` : ""}
+
+**The field:**
+${rows}
+
+${input.complaints ? `**What buyers actually complain about, across the category (raw, unedited):**\n${input.complaints}` : "**Buyer complaints:** not collected for this category. Say what you would need and score conservatively."}`;
+}
