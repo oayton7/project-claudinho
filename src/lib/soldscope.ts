@@ -120,6 +120,29 @@ export async function checkToken(): Promise<{ ok: true; account: unknown }> {
   return { ok: true, account: data };
 }
 
+/**
+ * SoldScope sends `time` as a Unix timestamp in seconds, not an ISO date.
+ *
+ * Found by probing: every point parsed as an invalid date, every month came
+ * out NaN, and the reader then reported "not enough spread across months" on
+ * a product with 439 points covering a full year. Exactly the failure this
+ * project keeps producing — something that looks like it worked.
+ *
+ * Seconds and milliseconds are both handled, because which one an API sends
+ * is not something to assume twice in one afternoon.
+ */
+export function toIsoDate(value: string | number): string | null {
+  const raw = String(value).trim();
+  if (/^\d{9,13}$/.test(raw)) {
+    const n = Number(raw);
+    const ms = raw.length <= 10 ? n * 1000 : n;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 export type Seasonality = {
   /** 0 = flat all year, 1 = entirely concentrated in a few months. */
   concentration: number;
@@ -217,7 +240,7 @@ export async function bsrHistory(
     .map((p) => {
       const o = p as Record<string, unknown>;
       // `time` and `value` are what it actually sends; the rest are a cushion.
-      const date = String(o.time ?? o.date ?? o.timestamp ?? "");
+      const date = toIsoDate(String(o.time ?? o.date ?? o.timestamp ?? ""));
       const rank = Number(o.value ?? o.rank ?? o.bsr);
       return date && Number.isFinite(rank) && rank > 0 ? { date, rank } : null;
     })

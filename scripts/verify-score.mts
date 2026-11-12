@@ -8,7 +8,7 @@
 import { isMedia } from "../src/lib/exclusions.ts";
 import { complianceBurden } from "../src/lib/compliance.ts";
 import { viability, rankByViability } from "../src/lib/viability.ts";
-import { seasonalityFrom } from "../src/lib/soldscope.ts";
+import { seasonalityFrom, toIsoDate } from "../src/lib/soldscope.ts";
 import { readNiche } from "../src/lib/niche.ts";
 import {
   DEFAULT_WEIGHTS,
@@ -508,3 +508,11 @@ assert(
   "a well-executed fragmented field is contested, not open",
   readNiche(field(8, { rating: 4.0, aplus: true, video: 2 }))?.room === "contested",
 );
+
+// Dates from SoldScope arrive as Unix seconds. Parsed as a string they become
+// Invalid Date, every month becomes NaN, and a product with a full year of
+// history reports as having too little to read — which is what happened.
+assert("unix seconds become a real date", toIsoDate("1762947810")?.startsWith("2025-11") === true, String(toIsoDate("1762947810")));
+assert("unix milliseconds work too", toIsoDate("1762947810000")?.startsWith("2025-11") === true);
+assert("an ISO date passes through", toIsoDate("2026-06-15T00:00:00Z")?.startsWith("2026-06") === true);
+assert("nonsense is null, not an epoch date", toIsoDate("not a date") === null);
