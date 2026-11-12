@@ -17,8 +17,10 @@ import { describeError } from "@/lib/errors";
 export const maxDuration = 60;
 
 export async function GET(request: Request) {
-  const asin = new URL(request.url).searchParams.get("asin")?.toUpperCase().trim() ?? "";
-  if (!/^[A-Z0-9]{10}$/.test(asin)) {
+  const url = new URL(request.url);
+  const asin = url.searchParams.get("asin")?.toUpperCase().trim() ?? "";
+  const wantsSearch = ["product-search", "categories"].includes(url.searchParams.get("raw") ?? "");
+  if (!wantsSearch && !/^[A-Z0-9]{10}$/.test(asin)) {
     return Response.json({ error: "Pass a 10-character ASIN." }, { status: 400 });
   }
   if (!soldscopeAvailable()) {
@@ -55,16 +57,27 @@ export async function GET(request: Request) {
     "bsr-history": { path: "/common/bsr-history", params: { marketplace: "UK", days: 365 } },
     "sales-history": { path: "/common/sales-history", params: { marketplace: "UK", days: 365 } },
     "price-history": { path: "/common/price-history", params: { marketplace: "UK", days: 365 } },
-    "listing-analyzer": { path: "/listing-analyzer", params: { marketplace: "UK" } },
-    "product-research": { path: "/product-research", params: { marketplace: "UK" } },
+    // The real paths, from their OpenAPI spec rather than from the endpoint
+    // group names in the docs, which is what the first two guesses used.
+    "product-search": {
+      path: "/product-research/products",
+      params: {
+        marketplace: "UK",
+        perPage: 100,
+        "filters[reviewCount][min]": 200,
+        "filters[price][min]": 18,
+        "filters[price][max]": 60,
+      },
+    },
+    "categories": { path: "/product-research/categories", params: { marketplace: "UK" } },
   };
 
-  const which = new URL(request.url).searchParams.get("raw");
+  const which = url.searchParams.get("raw");
   if (which) {
     const probe = PROBES[which] ?? PROBES["bsr-history"];
     try {
-      const body = await raw(probe.path, { asin, ...probe.params });
-      return Response.json({ asin, endpoint: probe.path, shape: shapeOf(body) });
+      const body = await raw(probe.path, wantsSearch ? probe.params : { asin, ...probe.params });
+      return Response.json({ asin: wantsSearch ? null : asin, endpoint: probe.path, shape: shapeOf(body) });
     } catch (error) {
       return Response.json(
         { asin, endpoint: probe.path, error: describeError(error) },
