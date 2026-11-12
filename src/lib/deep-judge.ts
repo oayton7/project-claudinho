@@ -27,6 +27,8 @@ export type DeepJudgement = {
   judgement: Judgement;
   cost: ReturnType<typeof priceIt>;
   readReviews: boolean;
+  /** How many of the listing's photographs the Judge actually looked at. */
+  sawImages: number;
   missing: string[];
 };
 
@@ -72,6 +74,31 @@ export async function judgeOne(asin: string): Promise<DeepJudgement> {
     reviewText,
   });
 
+  // The listing's own photographs, which the Judge has never seen.
+  //
+  // Its prompt has always said to judge the visual criteria from the images
+  // when they are attached and to score conservatively when they are not, and
+  // nothing ever attached any — so every marketing judgement this tool has
+  // made was made with its eyes shut. On the best candidate found so far it
+  // said as much: nobody has actually looked at the images.
+  //
+  // Keepa stores filenames; Amazon serves them from one host. Four at most,
+  // because the main image and the three after it are what a buyer sees
+  // before scrolling, and each one costs tokens.
+  const imageKeys = (candidate.image_keys ?? "")
+    .split(",")
+    .map((k) => k.trim())
+    .filter(Boolean)
+    .slice(0, 4);
+
+  const imageBlocks = imageKeys.map((key) => ({
+    type: "image" as const,
+    source: {
+      type: "url" as const,
+      url: `https://m.media-amazon.com/images/I/${key}`,
+    },
+  }));
+
   const result = await guarded((client) =>
     client.messages.create({
       model: MODEL,
@@ -82,7 +109,15 @@ export async function judgeOne(asin: string): Promise<DeepJudgement> {
         format: zodOutputFormat(JudgementSchema),
       },
       system: JUDGE_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: buildJudgePrompt(input) }],
+      messages: [
+        {
+          role: "user",
+          content: [
+            ...imageBlocks,
+            { type: "text" as const, text: buildJudgePrompt(input) },
+          ],
+        },
+      ],
     }),
   );
 
@@ -119,5 +154,12 @@ export async function judgeOne(asin: string): Promise<DeepJudgement> {
     );
   }
 
-  return { asin, judgement: parsed.data, cost, readReviews: reviewText !== null, missing };
+  return {
+    asin,
+    judgement: parsed.data,
+    cost,
+    readReviews: reviewText !== null,
+    sawImages: imageBlocks.length,
+    missing,
+  };
 }

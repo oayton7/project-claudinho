@@ -181,9 +181,20 @@ assert("US clothing department", isMedia(tree("Clothing, Shoes & Jewelry", "Tops
 assert("UK clothing department", isMedia(tree("Clothing", "Jumpers")));
 assert("UK footwear", isMedia(tree("Shoes & Bags", "Cross Trainers")));
 assert("a leaf inside a fine department", isMedia(tree("Sports & Outdoors", "Leggings")));
-assert("supplements", isMedia(tree("Health & Personal Care", "Vitamins & Supplements")));
-assert("sports nutrition", isMedia(tree("Health & Personal Care", "Sports Nutrition", "Protein")));
-assert("food", isMedia(tree("Grocery", "Candy & Chocolate Bars")));
+// Supplements are deliberately NOT excluded any more. Oscar reversed that on
+// 12 November 2026, naming pet supplements specifically, and a blanket ban was
+// the wrong instrument: it removed a large and genuinely improvable category
+// on a worry that is real but manageable. The burden is flagged instead.
+assert("supplements survive", !isMedia(tree("Health & Personal Care", "Vitamins & Supplements")));
+assert("sports nutrition survives", !isMedia(tree("Health & Personal Care", "Sports Nutrition", "Protein")));
+assert("pet supplements survive", !isMedia(tree("Pet Supplies", "Dog Health Supplies", "Supplements")));
+assert("but actual medicines stay out", isMedia(tree("Health & Personal Care", "Pharmacy")));
+
+
+// Food and drink stay out, which was never part of the supplement reversal:
+// perishable stock, best-before dates against sea freight, and food safety.
+assert("food stays out", isMedia(tree("Grocery", "Candy & Chocolate Bars")));
+assert("pet food stays out", isMedia(tree("Pet Supplies", "Dog Food")));
 assert("vinyl by department", isMedia(tree("CDs & Vinyl", "Album-Oriented Rock")));
 assert("DVDs, UK naming", isMedia(tree("DVD & Blu-ray", "Action")));
 
@@ -333,6 +344,20 @@ assert(
     w.startsWith("Toy safety"),
   ),
 );
+// Flagged rather than blocked, which is the point of the reversal.
+assert(
+  "a pet supplement is flagged under feed rules",
+  burden("Dog Joint Supplement with Glucosamine", "Pet Supplies").some((w) => w.startsWith("Pet supplement")),
+);
+assert(
+  "a human supplement is flagged under food rules",
+  burden("Vitamin D3 Capsules", "Vitamins & Supplements").some((w) => w.startsWith("Food supplement")),
+);
+assert(
+  "and a bird bath is not flagged as either",
+  burden("Metal Bird Bath", "Bird Baths").every((w) => !w.toLowerCase().includes("supplement")),
+);
+
 assert(
   "an empty candidate says so rather than guessing",
   complianceBurden({}).summary.length > 0,

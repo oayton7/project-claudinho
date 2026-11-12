@@ -38,6 +38,8 @@ export type Candidate = {
   referralFeePct: number | null;
   hasAplus: boolean;
   videoCount: number;
+  /** The listing's own image filenames, comma separated, main image first. */
+  imageKeys: string | null;
   listingWeaknesses: string[];
   us: UsSignal | null;
   /**
@@ -180,6 +182,31 @@ export function buildCandidate(
       ? product.imagesCSV.split(",").length
       : null;
 
+  // The filenames themselves, not just how many there are.
+  //
+  // Keepa returns either an array of objects carrying a large-image filename
+  // or the older comma-separated string. Either way these become Amazon image
+  // urls at judging time, which is the difference between an opinion about
+  // photography and a look at it. First four only: the main image and the
+  // three after it are what a buyer sees before scrolling.
+  const imageKeys = (() => {
+    if (Array.isArray(images)) {
+      return images
+        .map((img) => {
+          if (typeof img === "string") return img;
+          const o = img as Record<string, unknown>;
+          return typeof o.l === "string" ? o.l : typeof o.m === "string" ? o.m : null;
+        })
+        .filter((k): k is string => Boolean(k))
+        .slice(0, 4)
+        .join(",");
+    }
+    if (typeof product.imagesCSV === "string" && product.imagesCSV.length > 0) {
+      return product.imagesCSV.split(",").slice(0, 4).join(",");
+    }
+    return null;
+  })();
+
   // Keepa returns these only when aplus=1 and videos=1 are requested. Absent
   // fields mean "not asked for", which is not the same as "not present", so
   // both are read defensively rather than assumed missing.
@@ -245,6 +272,7 @@ export function buildCandidate(
     referralFeePct: keepaReferralPct,
     hasAplus,
     videoCount,
+    imageKeys,
     listingWeaknesses: listingWeaknesses(
       (product.title as string) ?? null,
       (product.brand as string) ?? null,

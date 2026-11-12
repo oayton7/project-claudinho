@@ -228,6 +228,8 @@ export type ScoutCandidateRow = {
   found_via: string | null;
   has_aplus: boolean | null;
   video_count: number | null;
+  /** Comma-separated Amazon image filenames, main image first. */
+  image_keys: string | null;
   parent_asin: string | null;
   dismissed: boolean;
   my_notes: string;

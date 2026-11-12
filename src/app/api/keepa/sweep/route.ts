@@ -388,6 +388,7 @@ export async function POST(request: Request) {
               parent_asin: c.parentAsin,
               has_aplus: c.hasAplus,
               video_count: c.videoCount,
+              image_keys: c.imageKeys,
               found_via: pickedCategoryIds.length > 0 ? "uk category" : "seed asin",
             })),
           );

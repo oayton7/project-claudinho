@@ -85,6 +85,30 @@ const BATTERY = [
  * ignored, and the flag then costs nothing to ignore on the product that
  * genuinely needed it.
  */
+/**
+ * Supplements, which are allowed but carry duties worth seeing first.
+ *
+ * Human and animal sit under different regimes, so they are detected
+ * separately: one is food law, the other is animal feed law, and the
+ * paperwork differs.
+ */
+const SUPPLEMENT_WORDS = [
+  "supplement",
+  "supplements",
+  "vitamin",
+  "vitamins",
+  "probiotic",
+  "probiotics",
+  "omega",
+  "collagen",
+  "glucosamine",
+  "electrolyte",
+  "electrolytes",
+  "multivitamin",
+  "capsules",
+  "softgels",
+];
+
 const CHILD_WORDS = ["children", "childrens", "kids", "kid", "toddler", "baby", "infant", "nursery"];
 const TOY_WORDS = ["toy", "toys", "playset", "jigsaw", "puzzle"];
 const PET_WORDS = ["pet", "pets", "dog", "dogs", "cat", "cats", "puppy", "kitten", "canine", "feline"];
@@ -142,6 +166,23 @@ export function complianceBurden(input: {
     !forPets &&
     !forAdults &&
     (mentions(text, CHILD_WORDS) || mentions(text, TOY_WORDS));
+
+  // Supplements: allowed, and flagged. Pet and human are different regimes.
+  if (mentions(text, SUPPLEMENT_WORDS)) {
+    if (forPets) {
+      obligations.push({
+        what: "Pet supplement — animal feed rules apply",
+        why: "A supplement for an animal is regulated as a feed rather than a food. Expect rules on what may be claimed, what must appear on the label, and registration of the premises that makes or packs it. Your supplier handles the making; you are responsible for the label being right and the claims being allowed, so get both agreed in writing before ordering.",
+        weight: "cost",
+      });
+    } else {
+      obligations.push({
+        what: "Food supplement rules apply",
+        why: "Health claims are tightly controlled and most of the obvious ones are not permitted, labelling is prescribed, and Amazon gates the category so expect to supply documentation before you can list. None of it is a barrier, but it is more than a supplier brief and worth pricing before committing.",
+        weight: "cost",
+      });
+    }
+  }
 
   if (forChildren) {
     obligations.push({

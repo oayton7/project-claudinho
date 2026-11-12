@@ -67,16 +67,25 @@ const NEVER_CANDIDATES = [
  * already slipped through a department check once.
  */
 const NEVER_ANYWHERE = [
-  // Supplements and anything ingestible
-  "supplement",
-  "vitamin",
-  "mineral",
-  "sports nutrition",
-  "protein",
-  "herbal",
-  "probiotic",
-  "meal replacement",
-  "weight loss",
+  // Supplements are NOT banned.
+  //
+  // They were, on Oscar's early instinct to avoid them. He reversed that on 12
+  // November 2026, specifically naming pet supplements, and he is right that a
+  // blanket ban was the wrong instrument: it removed a large, genuinely
+  // improvable category on a worry that is real but manageable. The burden is
+  // now flagged in compliance.ts, where it can be read and priced, rather than
+  // deciding the question silently before anyone sees the product.
+  //
+  // Actual medicines stay out. That is a different regime from a supplement,
+  // needs a licence rather than paperwork, and is not a first product.
+  "medicine",
+  "pharmacy",
+  "prescription",
+
+  // Food and drink stay out, which is a separate question from supplements
+  // and was not part of that reversal. Perishable stock, best-before dates
+  // against sea freight, and food safety on top — a different business, not a
+  // harder version of this one.
   "food",
   "grocery",
   "drink",
@@ -91,8 +100,7 @@ const NEVER_ANYWHERE = [
   "seasoning",
   "baby food",
   "pet food",
-  "medicine",
-  "pharmacy",
+  "meal replacement",
 
   // Apparel and footwear, at leaf level
   "jumper",
