@@ -71,8 +71,37 @@ export async function GET() {
     message: process.env.VERCEL_GIT_COMMIT_MESSAGE?.slice(0, 80) ?? null,
   };
 
+  // SoldScope, including whether the token actually works.
+  //
+  // /auth/check is documented as not counting against the monthly quota, so
+  // this can be asked on every health check. Knowing a key exists is not the
+  // same as knowing it is accepted, and this project has lost hours to that
+  // difference before.
+  const soldscope = await (async () => {
+    const configured = Boolean(process.env.SOLDSCOPE_API_TOKEN?.trim());
+    if (!configured) {
+      return {
+        configured: false,
+        note: "Not set. Seasonality is skipped and nothing else changes. Create a token at app.soldscope.com/api-access, add it as SOLDSCOPE_API_TOKEN in Vercel, and redeploy.",
+      };
+    }
+    try {
+      const { checkToken } = await import("@/lib/soldscope");
+      await checkToken();
+      return { configured: true, accepted: true, note: "Token works." };
+    } catch (error) {
+      const { describeError } = await import("@/lib/errors");
+      return {
+        configured: true,
+        accepted: false,
+        note: `A token is set but SoldScope refused it: ${describeError(error)}`,
+      };
+    }
+  })();
+
   return Response.json({
     build,
+    soldscope,
     usage,
     pipeline,
     watchdog: {
