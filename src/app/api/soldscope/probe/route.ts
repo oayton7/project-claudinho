@@ -63,6 +63,8 @@ export async function GET(request: Request) {
       path: "/product-research/products",
       params: {
         marketplace: "UK",
+        // Required: 422 "The page field is required unless full data mode".
+        page: 1,
         perPage: 100,
         "filters[reviewCount][min]": 200,
         "filters[price][min]": 18,
