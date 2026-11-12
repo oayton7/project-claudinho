@@ -25,6 +25,13 @@ export type ProductInput = {
   reviewComplaints: string;
   competitorNotes: string;
   usSignal: "rising" | "falling" | "flat" | "no-analogue" | "unchecked";
+  /**
+   * The shape of the product's year, where it has been measured.
+   *
+   * Absent means not measured, which is different from flat, and the prompt
+   * says so: a confident guess about seasonality is worse than silence.
+   */
+  seasonality?: string | null;
 };
 
 export const DEFAULT_PRODUCT: ProductInput = {
@@ -194,6 +201,14 @@ You will be told what happens to this product at both states. Apply it:
 - Where the fall is severe but survivable, say what he would have to do at the crossing: raise the price, renegotiate the supplier, or improve the margin. Decided in advance, not in a panic.
 - Do not treat voluntary early registration as an obvious answer. It lets him reclaim import VAT on stock, but whether it nets out depends on his margins and volume. That is an accountant question, not one to guess at.
 
+## Seasonality
+
+Where the shape of the product's year has been measured you will be told. It changes the decision rather than decorating it, because he has three thousand pounds and it can only be in one place at a time.
+
+- **A seasonal product is not a worse product, it is a dated one.** Stock has to land before the season, not during it. Say which months he must order in, and say plainly that ordering after the peak means his capital sits until the next one.
+- **Against a first product, a season is a real mark against it.** Twelve months of learning compressed into three, and a mistake costs a year rather than a month. Weigh it in the risks.
+- **Where it is not mentioned, do not infer it from the product type.** A guess about whether something is seasonal, stated with confidence, is worse than silence.
+
 ## What importing obliges him to do
 
 Whoever first places goods on the UK market is the producer. Not the factory, not Amazon — him. Some categories carry registration and reporting duties that others do not, and you will be told which apply to this product.
@@ -247,6 +262,10 @@ export function buildJudgePrompt(p: ProductInput): string {
         .join(" ")}`
     : "";
 
+  const seasonNote = p.seasonality
+    ? `\n\n**The shape of its year:** ${p.seasonality}`
+    : "";
+
   const weightNote =
     p.weightGrams > WEIGHT_LIMIT_GRAMS
       ? `\n\nNOTE: at ${p.weightGrams}g this is over the ${WEIGHT_LIMIT_GRAMS}g small-and-light guideline. Freight and FBA size tiers will bite. Factor that into your verdict.`
@@ -268,7 +287,7 @@ ${p.reviewComplaints || "(not provided)"}
 **Competition (raw paste — brand names, seller counts, review counts):**
 ${p.competitorNotes || "(not provided)"}
 
-**US signal:** ${usSignalText}${weightNote}${vatNote}${complianceNote}`;
+**US signal:** ${usSignalText}${weightNote}${vatNote}${complianceNote}${seasonNote}`;
 }
 
 export const PREMORTEM_SYSTEM_PROMPT = `You are running a pre-mortem for a UK first-time Amazon FBA seller with roughly £3,000 of capital, stretchable to about £5,000 for a product that genuinely warrants it who is about to commit money to a product.
@@ -694,6 +713,8 @@ ${input.rawText.slice(0, 60000)}`;
  * how a tool becomes confidently wrong.
  */
 export function candidateToProductInput(c: {
+  /** The shape of the product's year, where it has been measured. */
+  seasonality?: string | null;
   asin: string;
   title: string | null;
   brand: string | null;

@@ -230,6 +230,12 @@ export type ScoutCandidateRow = {
   video_count: number | null;
   /** Comma-separated Amazon image filenames, main image first. */
   image_keys: string | null;
+  /** The shape of the product's year, bought once at the deep look. */
+  season_concentration: number | null;
+  season_peak_months: string | null;
+  season_is_seasonal: boolean | null;
+  season_why: string | null;
+  season_checked_at: string | null;
   parent_asin: string | null;
   dismissed: boolean;
   my_notes: string;
@@ -255,6 +261,11 @@ export type ScoutCandidateInput = Omit<
   | "triage_at"
   // Written only by the deep look, never at discovery, so an insert must not
   // be made to supply them.
+  | "season_concentration"
+  | "season_peak_months"
+  | "season_is_seasonal"
+  | "season_why"
+  | "season_checked_at"
   | "judge_verdict"
   | "judge_summary"
   | "judge_pence"
@@ -665,6 +676,35 @@ export async function countToJudge(): Promise<number> {
     .is("judge_verdict", null);
   if (error) throw new Error(`Could not count what is left to judge: ${error.message}`);
   return count ?? 0;
+}
+
+/**
+ * Stores the shape of a product's year, so it is bought once.
+ */
+export async function saveSeasonality(
+  asin: string,
+  season: {
+    concentration: number;
+    peakMonths: number[];
+    seasonal: boolean;
+    why: string;
+  } | null,
+): Promise<void> {
+  const db = getDb();
+  await db
+    .from("scout_candidates")
+    .update({
+      season_concentration: season?.concentration ?? null,
+      season_peak_months: season ? season.peakMonths.join(",") : null,
+      season_is_seasonal: season?.seasonal ?? null,
+      season_why: season?.why ?? null,
+      // Stamped either way. A product whose history was too thin to read is a
+      // question already asked, and asking it again every run would spend the
+      // quota on the same silence.
+      season_checked_at: new Date().toISOString(),
+    })
+    .eq("asin", asin)
+    .eq("user_id", currentUserId());
 }
 
 /**

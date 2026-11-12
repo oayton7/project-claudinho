@@ -19,7 +19,15 @@ import {
   candidateToProductInput,
 } from "@/lib/judge";
 import { MODEL, guarded, priceIt } from "@/lib/claude";
-import { getCandidate, saveDeepJudgement, getReviews, recordApiSpend } from "@/lib/db";
+import {
+  getCandidate,
+  saveDeepJudgement,
+  getReviews,
+  recordApiSpend,
+  saveSeasonality,
+} from "@/lib/db";
+import { bsrHistory, seasonalityFrom, soldscopeAvailable } from "@/lib/soldscope";
+import { describeError } from "@/lib/errors.ts";
 import type { Judgement } from "@/lib/judge";
 
 export type DeepJudgement = {
@@ -54,6 +62,38 @@ export async function judgeOne(asin: string): Promise<DeepJudgement> {
         .join("\n")
     : null;
 
+  // The shape of the product's year, bought here and nowhere else.
+  //
+  // One SoldScope request against a monthly quota of a few hundred, so it must
+  // never run on everything. This is the narrowest gate in the pipeline: a
+  // candidate reaching the deep look has already survived the free arithmetic
+  // and the cheap opinion, and is about to cost ten pence regardless, which
+  // makes one request beside it free in all but name.
+  //
+  // Bought once. A stored answer is reused, and a product whose history was
+  // too thin to read is stamped as asked so the quota is not spent on the same
+  // silence every run.
+  let season = candidate.season_why
+    ? {
+        seasonal: Boolean(candidate.season_is_seasonal),
+        why: candidate.season_why,
+      }
+    : null;
+
+  if (!candidate.season_checked_at && soldscopeAvailable()) {
+    try {
+      const { points } = await bsrHistory(asin);
+      const read = seasonalityFrom(points);
+      await saveSeasonality(asin, read);
+      if (read) season = { seasonal: read.seasonal, why: read.why };
+    } catch (error) {
+      // Never let this stop a judgement. It is an improvement to the opinion,
+      // not a precondition for having one, and the quota running out mid-month
+      // must not take the pipeline with it.
+      console.warn("[deep-judge] seasonality unavailable", describeError(error));
+    }
+  }
+
   const { input, missing } = candidateToProductInput({
     asin: candidate.asin,
     title: candidate.title,
@@ -72,6 +112,7 @@ export async function judgeOne(asin: string): Promise<DeepJudgement> {
     videoCount: candidate.video_count,
     us: candidate.us_growing === null ? null : { growing: candidate.us_growing },
     reviewText,
+    seasonality: season?.why ?? null,
   });
 
   // The listing's own photographs, which the Judge has never seen.

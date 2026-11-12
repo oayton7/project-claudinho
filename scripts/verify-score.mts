@@ -8,6 +8,7 @@
 import { isMedia } from "../src/lib/exclusions.ts";
 import { complianceBurden } from "../src/lib/compliance.ts";
 import { viability, rankByViability } from "../src/lib/viability.ts";
+import { seasonalityFrom } from "../src/lib/soldscope.ts";
 import {
   DEFAULT_WEIGHTS,
   autoVerdict,
@@ -429,3 +430,39 @@ assert("a score stays inside 0 to 100", (() => {
   const v = viability(viable).score;
   return v >= 0 && v <= 100;
 })(), String(viability(viable).score));
+
+// ── Seasonality ───────────────────────────────────────────────────────────
+//
+// Read from a year of sales rank. Lower rank means better selling, so the
+// series is inverted before anything is measured — getting that backwards
+// would mark summer products as winter ones and send stock six months wrong.
+const year = (peakMonths: number[], peakRank = 500, offRank = 50000) => {
+  const pts: { date: string; rank: number }[] = [];
+  for (let m = 1; m <= 12; m += 1) {
+    for (let d = 1; d <= 4; d += 1) {
+      pts.push({
+        date: `2026-${String(m).padStart(2, "0")}-${String(d * 7).padStart(2, "0")}`,
+        rank: peakMonths.includes(m) ? peakRank : offRank,
+      });
+    }
+  }
+  return pts;
+};
+
+const summer = seasonalityFrom(year([6, 7, 8]));
+const flat = seasonalityFrom(year([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));
+
+assert("a summer product is called seasonal", summer?.seasonal === true, summer?.why.slice(0, 60));
+assert(
+  "and its peak months are the summer ones",
+  Boolean(summer && summer.peakMonths.every((m) => [6, 7, 8].includes(m))),
+  summer?.peakMonths.join(","),
+);
+assert("a flat product is not called seasonal", flat?.seasonal === false, String(flat?.concentration));
+assert(
+  "a flat year concentrates about a quarter in its best three months",
+  Boolean(flat && flat.concentration >= 0.2 && flat.concentration <= 0.3),
+  String(flat?.concentration),
+);
+assert("too little history reads as unknown, not as flat", seasonalityFrom(year([6]).slice(0, 8)) === null);
+assert("no history at all reads as unknown", seasonalityFrom([]) === null);
