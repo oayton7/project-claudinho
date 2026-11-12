@@ -165,14 +165,23 @@ export function seasonalityFrom(
   };
 }
 
-/** A year of sales rank for one product. One request against the quota. */
+/**
+ * A year of sales rank for one product. One request against the quota.
+ *
+ * `days` is required, which the probe found rather than the documentation:
+ * without it the endpoint answers 422 "The days field is required". 365
+ * because seasonality is a question about a year, and anything shorter cannot
+ * distinguish a summer product from one that happens to be selling now.
+ */
 export async function bsrHistory(
   asin: string,
   marketplace = "UK",
+  days = 365,
 ): Promise<{ points: { date: string; rank: number }[]; requestsLeft: number | null }> {
   const { data, requestsLeft } = await call<Record<string, unknown>>("/common/bsr-history", {
     asin,
     marketplace,
+    days,
   });
   // Shape is not documented publicly, so read defensively and say so loudly
   // if nothing recognisable comes back rather than returning an empty series
