@@ -48,12 +48,28 @@ export async function GET(request: Request) {
     return typeof v === "string" ? `string: ${v.slice(0, 40)}` : typeof v;
   };
 
-  if (new URL(request.url).searchParams.get("raw")) {
+  // Any of the endpoints worth knowing the shape of, by name rather than by
+  // free-form path: this is a diagnostic, not a way to send arbitrary
+  // requests on the account's behalf.
+  const PROBES: Record<string, { path: string; params: Record<string, string | number> }> = {
+    "bsr-history": { path: "/common/bsr-history", params: { marketplace: "UK", days: 365 } },
+    "sales-history": { path: "/common/sales-history", params: { marketplace: "UK", days: 365 } },
+    "price-history": { path: "/common/price-history", params: { marketplace: "UK", days: 365 } },
+    "listing-analyzer": { path: "/listing-analyzer", params: { marketplace: "UK" } },
+    "product-research": { path: "/product-research", params: { marketplace: "UK" } },
+  };
+
+  const which = new URL(request.url).searchParams.get("raw");
+  if (which) {
+    const probe = PROBES[which] ?? PROBES["bsr-history"];
     try {
-      const body = await raw("/common/bsr-history", { asin, marketplace: "UK", days: 365 });
-      return Response.json({ asin, shape: shapeOf(body) });
+      const body = await raw(probe.path, { asin, ...probe.params });
+      return Response.json({ asin, endpoint: probe.path, shape: shapeOf(body) });
     } catch (error) {
-      return Response.json({ asin, error: describeError(error) }, { status: 502 });
+      return Response.json(
+        { asin, endpoint: probe.path, error: describeError(error) },
+        { status: 502 },
+      );
     }
   }
 
