@@ -19,6 +19,7 @@ import { useState } from "react";
 
 const MAIN = [
   { href: "/shortlist", name: "Shortlist" },
+  { href: "/niche", name: "Is there room" },
   { href: "/runs", name: "Runs" },
   { href: "/reviews", name: "Reviews" },
   { href: "/products", name: "Products" },
